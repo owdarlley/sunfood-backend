@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
-import { db } from "./db.js";
+import { db, withTransaction } from "./db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -38,8 +38,8 @@ function seedProducts() {
     VALUES (@name, @description, @long_description, @category, @price_cents, @sold_out,
             @portion, @prep_time, @kcal, @rating, @review_count, @ingredients, @image_key, @tags_json)
   `);
-  const tx = db.transaction((rows) => {
-    for (const p of rows) {
+  withTransaction(() => {
+    for (const p of products) {
       insert.run({
         name: p.name,
         description: p.desc,
@@ -58,7 +58,6 @@ function seedProducts() {
       });
     }
   });
-  tx(products);
   console.log(`Seed: ${products.length} produtos inseridos.`);
 }
 
@@ -69,14 +68,13 @@ function seedTables() {
     return;
   }
   const insert = db.prepare("INSERT INTO tables (number, active, seats) VALUES (?, ?, ?)");
-  const tx = db.transaction(() => {
+  withTransaction(() => {
     for (let n = 1; n <= 12; n++) {
       const active = n === 7 || n === 11 ? 0 : 1;
       const seats = n % 3 === 0 ? 6 : 4;
       insert.run(n, active, seats);
     }
   });
-  tx();
   console.log("Seed: 12 mesas inseridas.");
 }
 

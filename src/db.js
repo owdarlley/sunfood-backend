@@ -1,13 +1,30 @@
-import Database from "better-sqlite3";
+// node:sqlite é nativo do Node (>=22.5) — zero compilação nativa, funciona
+// igual em Windows/Mac/Linux sem precisar de Visual Studio Build Tools/gcc
+// (diferente de better-sqlite3, que exige toolchain de C++ pra instalar).
+import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, "..", "sunfood.db");
 
-export const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
-db.pragma("foreign_keys = ON");
+export const db = new DatabaseSync(DB_PATH);
+db.exec("PRAGMA journal_mode = WAL");
+db.exec("PRAGMA foreign_keys = ON");
+
+// node:sqlite não tem um helper de transação embutido (como o
+// db.transaction() do better-sqlite3) — este substitui esse padrão.
+export function withTransaction(fn) {
+  db.exec("BEGIN");
+  try {
+    const result = fn();
+    db.exec("COMMIT");
+    return result;
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+}
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (

@@ -1,6 +1,8 @@
 # Sunfood API
 
-Backend real do protótipo Sunfood — Node.js + Express + SQLite (via `better-sqlite3`). Substitui o estado mockado do front-end por banco de dados de verdade, com autenticação e regras de negócio validadas no servidor.
+Backend real do protótipo Sunfood — Node.js + Express + SQLite (via `node:sqlite`, nativo do Node desde a 22.5 — sem compilação nativa, funciona igual em Windows/Mac/Linux). Substitui o estado mockado do front-end por banco de dados de verdade, com autenticação e regras de negócio validadas no servidor.
+
+Requer **Node.js 22.5 ou mais recente**.
 
 ## Rodando
 
@@ -52,7 +54,7 @@ npm start                  # sobe em http://localhost:8787
 
 - Senhas com **bcrypt** (custo 12).
 - **JWT** assinado no servidor (papel do usuário embutido no token — não é mais um toggle escolhido no front).
-- Todas as queries via **prepared statements** do `better-sqlite3` — sem concatenação de string, sem SQL injection.
+- Todas as queries via **prepared statements** (`db.prepare(...)`, `node:sqlite`) — sem concatenação de string, sem SQL injection.
 - Validação de entrada com **zod** em todo endpoint que recebe body.
 - **express-rate-limit** no login.
 - **helmet** + **CORS** restrito à origem configurada em `.env`.

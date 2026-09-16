@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db } from "../db.js";
+import { db, withTransaction } from "../db.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { createOrderSchema, orderStatusUpdateSchema, validate } from "../validation/schemas.js";
 
@@ -89,14 +89,14 @@ ordersRouter.post("/", requireAuth, requireRole("cliente"), validate(createOrder
      VALUES (?, ?, ?, ?, ?, ?)`
   );
 
-  const orderId = db.transaction(() => {
+  const orderId = withTransaction(() => {
     const info = insertOrder.run(tableNumber, req.user.sub, subtotalCents, totalCents, note || "");
     for (const item of items) {
       const product = byId.get(item.productId);
       insertItem.run(info.lastInsertRowid, product.id, product.name, item.qty, product.price_cents, item.note || "");
     }
     return info.lastInsertRowid;
-  })();
+  });
 
   const row = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId);
   res.status(201).json(toApi(row));

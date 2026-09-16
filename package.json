@@ -4,12 +4,14 @@
   "private": true,
   "type": "module",
   "main": "src/app.js",
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "scripts": {
-    "start": "node src/app.js",
-    "seed": "node src/seed.js"
+    "start": "node --no-warnings src/app.js",
+    "seed": "node --no-warnings src/seed.js"
   },
   "dependencies": {
-    "better-sqlite3": "^11.3.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
