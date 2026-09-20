@@ -9,7 +9,7 @@
   },
   "scripts": {
     "start": "node --no-warnings src/local.js",
-    "test": "node --no-warnings --test test/"
+    "test": "node --no-warnings --test test/*.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",

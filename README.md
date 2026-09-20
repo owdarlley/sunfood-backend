@@ -1,21 +1,33 @@
 # Sunfood API
 
-Backend real do protótipo Sunfood — Node.js + Express + SQLite (via `node:sqlite`, nativo do Node desde a 22.5 — sem compilação nativa, funciona igual em Windows/Mac/Linux). Substitui o estado mockado do front-end por banco de dados de verdade, com autenticação e regras de negócio validadas no servidor.
+Backend real do Sunfood — Node.js + Express, com **Supabase** (Postgres + Auth) como banco de dados e autenticação, e **Mercado Pago** para pagamento PIX real. Todas as regras de negócio (pedido mínimo, cancelamento, disponibilidade de item, permissão por papel) são validadas aqui no servidor, nunca só no front-end.
 
 Requer **Node.js 22.5 ou mais recente**.
 
-## Rodando
+## Rodando localmente
 
 ```bash
 npm install
-cp .env.example .env      # ajuste JWT_SECRET/CORS_ORIGIN se precisar
-npm run seed               # cria server/sunfood.db com contas, produtos e mesas
-npm start                  # sobe em http://localhost:8787
+cp .env.example .env
 ```
 
-`npm run seed` é idempotente para produtos/mesas (não duplica se já existirem) e sempre garante as 3 contas de demonstração.
+Preencha o `.env`:
 
-## Contas de demonstração (senha com hash bcrypt no banco, nunca em texto puro)
+| Variável | Onde conseguir |
+| --- | --- |
+| `SUPABASE_URL`, `SUPABASE_ANON_KEY` | Painel do Supabase → Project Settings → API |
+| `SUPABASE_SERVICE_ROLE_KEY` | Mesmo lugar — **nunca** exponha essa chave no front-end nem a commite |
+| `PASSWORD_RESET_REDIRECT_URL` | URL pública de `redefinir-senha.html` (ex.: `https://seu-site.github.io/sunfood/redefinir-senha.html`) — precisa também estar na lista de Redirect URLs em Authentication → URL Configuration no Supabase |
+| `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_WEBHOOK_SECRET` | Painel do Mercado Pago → Suas integrações → Credenciais. Sem isso, o PIX roda em **modo simulado** (não cobra dinheiro real) |
+
+```bash
+npm start   # sobe em http://localhost:8787
+npm test    # roda a suíte de testes (regras de negócio, RBAC, validação, assinatura de webhook)
+```
+
+O schema do banco (tabelas, RLS, funções) já está provisionado no projeto Supabase — não há mais um `npm run seed` local; seed é feito por migração SQL direto no projeto.
+
+## Contas de demonstração
 
 | Perfil | E-mail | Senha |
 | --- | --- | --- |
@@ -23,49 +35,69 @@ npm start                  # sobe em http://localhost:8787
 | Administração | `admin@sunfood.com` | `admin2026` |
 | Cozinha | `cozinha@sunfood.com` | `cozinha2026` |
 
+Senhas ficam só como hash dentro do Supabase Auth — o backend nunca vê nem guarda a senha em texto puro.
+
 ## Endpoints
 
 | Método | Rota | Auth | Descrição |
 | --- | --- | --- | --- |
-| POST | `/auth/login` | — | Login (rate-limited: 10 tentativas / 15 min por IP) |
+| POST | `/auth/login` | — | Login via Supabase Auth (rate-limited: 10 tentativas / 15 min por IP) |
+| POST | `/auth/signup` | — | Cadastro real (rate-limited) — conta sempre nasce como "cliente" |
+| POST | `/auth/refresh` | — | Renova a sessão com o refresh token |
+| POST | `/auth/forgot-password` | — | Dispara o e-mail de redefinição de senha (rate-limited) |
+| POST | `/auth/update-password` | — | Segunda etapa: troca a senha usando o token do link do e-mail |
+| POST | `/auth/delete-account` | qualquer | Exclui a própria conta (LGPD) |
 | GET | `/products` | — | Cardápio |
 | POST | `/products` | admin | Criar produto |
 | PUT | `/products/:id` | admin | Editar produto |
 | PATCH | `/products/:id/sold-out` | admin, cozinha | Sinalizar item (in)disponível |
 | GET | `/tables` | — | Lista de mesas |
 | PATCH | `/tables/:number/active` | admin | Ativar/desativar mesa |
-| POST | `/orders` | cliente | Criar pedido (RN01 + mesa ativa + item disponível, tudo checado aqui) |
+| POST | `/orders` | cliente | Criar pedido (RN01 + mesa ativa + item disponível, tudo checado aqui; rate-limited) |
 | GET | `/orders/mine` | cliente | Histórico do próprio usuário |
 | GET | `/orders` | admin, cozinha | Lista de pedidos (`?status=` opcional) |
 | GET | `/orders/:id` | dono ou admin/cozinha | Detalhe de um pedido |
 | POST | `/orders/:id/cancel` | cliente (dono) | Cancelar (RN04: só com status "Na Fila") |
 | PATCH | `/orders/:id/status` | admin, cozinha | Avançar status (kanban) |
+| POST | `/payments/pix/:orderId` | cliente (dono) | Gera a cobrança PIX (real ou simulada) pro pedido |
+| GET | `/payments/pix/:orderId/status` | cliente (dono) | Status do pagamento do pedido |
+| POST | `/payments/pix/:orderId/simulate-approve` | cliente (dono) | Só funciona em modo simulado — aprova o "pagamento" pra testar o fluxo sem Mercado Pago configurado |
+| POST | `/payments/mercadopago/webhook` | Mercado Pago | Notificação de pagamento — assinatura verificada, status sempre reconferido na API deles |
 | GET | `/kiosk-settings` | — | Estado atual (pausado/dia encerrado) |
 | PATCH | `/kiosk-settings/pause` | admin | Pausar/reabrir o quiosque |
-| GET | `/dashboard` | admin | KPIs do dia + vendas por horário + mais vendidos, calculados de verdade a partir dos pedidos |
-| GET | `/ops-metrics` | admin | Tempo médio de fila/preparo, pedidos atrasados, cancelamentos e itens esgotados — calculado a partir de `order_status_log`, não fixo |
-| GET | `/day-reports/latest` | admin | Último relatório de fechamento de dia (para reexibir sem precisar encerrar de novo) |
-| POST | `/close-day` | admin | Encerra o dia e grava um relatório real em `day_reports` |
+| GET | `/dashboard` | admin | KPIs do dia + vendas por horário + mais vendidos |
+| GET | `/ops-metrics` | admin | Tempo médio de fila/preparo, atrasos, cancelamentos, itens esgotados |
+| GET | `/day-reports/latest` | admin | Último relatório de fechamento de dia |
+| POST | `/close-day` | admin | Encerra o dia e grava um relatório real |
 | POST | `/reopen-day` | admin | Desfaz o encerramento |
 
-## Modelo de dados
+## Modelo de dados (Supabase Postgres)
 
-`users`, `products`, `tables`, `orders` + `order_items` + `order_status_log`, `kiosk_settings`, `day_reports` — ver `src/db.js` para o schema completo. Pedido e "ticket da cozinha" viraram **uma única tabela** (`orders`), diferente do protótipo original que mantinha os dois em arrays separados e sincronizava manualmente. `order_status_log` registra cada mudança de status com data/hora, usado pelo `/ops-metrics` para calcular tempos médios reais (não estimados).
+`profiles` (papel do usuário, ligado a `auth.users`), `products`, `kiosk_tables`, `orders` + `order_items` + `order_status_log`, `kiosk_settings`, `day_reports`. Ver as migrações aplicadas no projeto Supabase para o schema completo, incluindo as funções `create_order`, `set_order_status`, `dashboard_stats`, `ops_metrics` e `close_day`, que gravam/agregam atomicamente e só são executáveis pelo `service_role` (nunca direto por um cliente autenticado).
 
 ## Segurança
 
-- Senhas com **bcrypt** (custo 12).
-- **JWT** assinado no servidor (papel do usuário embutido no token — não é mais um toggle escolhido no front).
-- Todas as queries via **prepared statements** (`db.prepare(...)`, `node:sqlite`) — sem concatenação de string, sem SQL injection.
+- **Supabase Auth** cuida de senha (hash), sessão (access + refresh token), confirmação de e-mail e recuperação de senha — nada disso é reinventado aqui.
+- **Row Level Security** habilitada em toda tabela; a service role (usada só pelo backend) ignora RLS de propósito porque é este servidor que valida as regras de negócio antes de gravar — por isso as policies de escrita direta em `orders`/`order_items` foram removidas: um cliente com o próprio token não consegue criar ou alterar pedido pulando o Express.
+- Funções do banco que gravam dados (`create_order`, `set_order_status`, `dashboard_stats`, `ops_metrics`, `close_day`) são executáveis **só pelo `service_role`** — nem `anon` nem `authenticated` conseguem chamá-las direto pela API REST do Supabase.
+- Trigger no banco impede um usuário de trocar o próprio `role` direto pela API (proteção contra auto-escalação de privilégio).
 - Validação de entrada com **zod** em todo endpoint que recebe body.
-- **express-rate-limit** no login.
-- **helmet** + **CORS** restrito à origem configurada em `.env`.
-- Middleware de **autorização por papel** (`requireRole`) nas rotas de admin/cozinha.
-- Regras de negócio reforçadas no servidor, não só no front: RN01 (pedido mínimo R$10), RN04 (cancelar só com status "Na Fila"), mesa precisa existir e estar ativa, produto esgotado não entra em pedido novo.
+- **express-rate-limit** em login, cadastro, recuperação de senha, criação de pedido e geração de PIX.
+- **helmet** + **CORS** restrito a uma lista de origens (`CORS_ORIGIN`, separadas por vírgula).
+- Webhook do Mercado Pago com **verificação de assinatura HMAC** e reconsulta do status na API deles antes de liberar qualquer pedido — o corpo da notificação nunca é confiado por si só.
+- O sandbox de pagamento (sem `MERCADOPAGO_ACCESS_TOKEN`) nunca finge cobrar de verdade, e a rota de "simular aprovação" se autodesativa assim que o token real é configurado.
 
-## O que ainda falta
+## Deploy (Vercel)
 
-- Hospedagem pública da API (por ora só local — ver decisão registrada no README raiz do projeto).
-- Cadastro (`/auth/signup`) e recuperação de senha — as telas existem no front mas ainda são só front-end mockado (opcional, fora do escopo pedido no template da entrega).
+O projeto já está preparado pra rodar como função serverless (`api/index.js` + `vercel.json`). Pra publicar:
 
-As telas de Admin e Cozinha (`app-cliente.dc.html`, módulos `admin`/`cozinha`) já têm interface completa e falam com todos os endpoints acima — dashboard, pedidos, cadastro/edição de produto, mesas, pausar quiosque, desempenho, encerrar dia, kanban da cozinha e sinalização de item indisponível.
+1. No painel da Vercel, confirme as variáveis de ambiente do projeto (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `PASSWORD_RESET_REDIRECT_URL`, `CORS_ORIGIN`, `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_WEBHOOK_SECRET`).
+2. No painel do Supabase, em Authentication → URL Configuration, adicione a URL de `redefinir-senha.html` publicada na lista de Redirect URLs (senão o link do e-mail de recuperação de senha não funciona).
+3. No painel do Mercado Pago, configure a Webhook URL apontando pra `https://<seu-domínio-vercel>/payments/mercadopago/webhook`.
+4. Ative "Leaked Password Protection" em Authentication → Providers → Email, no painel do Supabase (recomendado pelo próprio linter de segurança do projeto).
+
+## O que ainda falta pra comercialização plena
+
+- Pagamento por **cartão** ainda é simulado (só PIX processa de verdade) — cartão exigiria integrar o Payment Brick / tokenização de cartão do Mercado Pago no front.
+- Multi-tenant (vários quiosques usando o mesmo sistema, cada um com seus próprios dados) não existe — o sistema é single-tenant por design, conforme decidido.
+- Termos de Uso e Política de Privacidade (na raiz do site) são um modelo honesto do que o sistema faz hoje, mas devem passar por um advogado antes do lançamento comercial real.

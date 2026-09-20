@@ -1,17 +1,21 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import { supabaseAdmin } from "../supabase.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { createOrderSchema, orderStatusUpdateSchema, validate } from "../validation/schemas.js";
+import { computeOrderTotals, meetsMinimumOrder, canCancel, isValidTransition, VALID_TRANSITIONS } from "../business-rules.js";
 
 export const ordersRouter = Router();
 
-const MIN_ORDER = 10; // RN01: pedido mínimo de R$ 10,00
-const SERVICE_FEE_RATE = 0.1; // 10% de taxa de serviço
-const VALID_TRANSITIONS = {
-  "Na Fila": ["Em Preparo", "Cancelado"],
-  "Em Preparo": ["Pronto"],
-  Pronto: ["Entregue"],
-};
+// Trava contra spam de pedidos (bug de cliente ou tentativa de abuso) — bem
+// mais generoso que o limite de login, já que é uso normal repetir pedidos.
+const createOrderLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Muitos pedidos em pouco tempo. Aguarde um instante." },
+});
 
 function toApi(row) {
   return {
@@ -41,7 +45,7 @@ const ORDER_SELECT = "*, order_items(*)";
 
 // Cliente: cria um pedido. Todas as regras de negócio são checadas aqui,
 // no servidor — o front pode ser enganado, o backend não.
-ordersRouter.post("/", requireAuth, requireRole("cliente"), validate(createOrderSchema), async (req, res) => {
+ordersRouter.post("/", requireAuth, requireRole("cliente"), createOrderLimiter, validate(createOrderSchema), async (req, res) => {
   const { tableNumber, items, note } = req.body;
 
   const { data: settings } = await supabaseAdmin.from("kiosk_settings").select("*").eq("id", 1).single();
@@ -75,15 +79,11 @@ ordersRouter.post("/", requireAuth, requireRole("cliente"), validate(createOrder
 
   // Aritmética em centavos pra não acumular erro de ponto flutuante, e só
   // volta pra reais decimais na hora de gravar.
-  const subtotalCents = items.reduce(
-    (sum, item) => sum + Math.round(Number(byId.get(item.productId).price) * 100) * item.qty,
-    0
-  );
-  if (subtotalCents < MIN_ORDER * 100) {
+  const priceCentsOf = (item) => Math.round(Number(byId.get(item.productId).price) * 100);
+  const { subtotalCents, feeCents, totalCents } = computeOrderTotals(items, priceCentsOf);
+  if (!meetsMinimumOrder(subtotalCents)) {
     return res.status(422).json({ error: "Pedido mínimo de R$ 10,00 (RN01)." });
   }
-  const feeCents = Math.round(subtotalCents * SERVICE_FEE_RATE);
-  const totalCents = subtotalCents + feeCents;
 
   const { data: created, error: createError } = await supabaseAdmin.rpc("create_order", {
     payload: {
@@ -151,7 +151,7 @@ ordersRouter.post("/:id/cancel", requireAuth, requireRole("cliente"), async (req
   if (row.customer_id !== req.user.sub) {
     return res.status(403).json({ error: "Sem permissão para cancelar este pedido." });
   }
-  if (row.status !== "Na Fila") {
+  if (!canCancel(row.status)) {
     return res.status(409).json({
       error: `Cancelamento bloqueado (RN04): o pedido já está em "${row.status}".`,
     });
@@ -182,11 +182,10 @@ ordersRouter.patch(
       .maybeSingle();
     if (error || !row) return res.status(404).json({ error: "Pedido não encontrado." });
 
-    const allowed = VALID_TRANSITIONS[row.status] || [];
-    if (!allowed.includes(next)) {
+    if (!isValidTransition(row.status, next)) {
       return res.status(422).json({
         error: `Transição inválida de "${row.status}" para "${next}".`,
-        allowed,
+        allowed: VALID_TRANSITIONS[row.status] || [],
       });
     }
 
