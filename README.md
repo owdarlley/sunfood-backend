@@ -42,13 +42,15 @@ npm start                  # sobe em http://localhost:8787
 | PATCH | `/orders/:id/status` | admin, cozinha | Avançar status (kanban) |
 | GET | `/kiosk-settings` | — | Estado atual (pausado/dia encerrado) |
 | PATCH | `/kiosk-settings/pause` | admin | Pausar/reabrir o quiosque |
-| GET | `/dashboard` | admin | KPIs do dia, calculados de verdade a partir dos pedidos |
+| GET | `/dashboard` | admin | KPIs do dia + vendas por horário + mais vendidos, calculados de verdade a partir dos pedidos |
+| GET | `/ops-metrics` | admin | Tempo médio de fila/preparo, pedidos atrasados, cancelamentos e itens esgotados — calculado a partir de `order_status_log`, não fixo |
+| GET | `/day-reports/latest` | admin | Último relatório de fechamento de dia (para reexibir sem precisar encerrar de novo) |
 | POST | `/close-day` | admin | Encerra o dia e grava um relatório real em `day_reports` |
 | POST | `/reopen-day` | admin | Desfaz o encerramento |
 
 ## Modelo de dados
 
-`users`, `products`, `tables`, `orders` + `order_items`, `kiosk_settings`, `day_reports` — ver `src/db.js` para o schema completo. Pedido e "ticket da cozinha" viraram **uma única tabela** (`orders`), diferente do protótipo original que mantinha os dois em arrays separados e sincronizava manualmente.
+`users`, `products`, `tables`, `orders` + `order_items` + `order_status_log`, `kiosk_settings`, `day_reports` — ver `src/db.js` para o schema completo. Pedido e "ticket da cozinha" viraram **uma única tabela** (`orders`), diferente do protótipo original que mantinha os dois em arrays separados e sincronizava manualmente. `order_status_log` registra cada mudança de status com data/hora, usado pelo `/ops-metrics` para calcular tempos médios reais (não estimados).
 
 ## Segurança
 
@@ -61,8 +63,9 @@ npm start                  # sobe em http://localhost:8787
 - Middleware de **autorização por papel** (`requireRole`) nas rotas de admin/cozinha.
 - Regras de negócio reforçadas no servidor, não só no front: RN01 (pedido mínimo R$10), RN04 (cancelar só com status "Na Fila"), mesa precisa existir e estar ativa, produto esgotado não entra em pedido novo.
 
-## O que ainda falta (próximas fases)
+## O que ainda falta
 
-- Telas de Admin e Cozinha no front (`app-cliente.dc.html`) — hoje só a lógica/estado existe, sem interface; o backend acima já dá suporte a elas.
-- Hospedagem pública da API (por ora só local).
-- Cadastro (`/auth/signup`) e recuperação de senha — as telas existem no front mas ainda são só front-end mockado.
+- Hospedagem pública da API (por ora só local — ver decisão registrada no README raiz do projeto).
+- Cadastro (`/auth/signup`) e recuperação de senha — as telas existem no front mas ainda são só front-end mockado (opcional, fora do escopo pedido no template da entrega).
+
+As telas de Admin e Cozinha (`app-cliente.dc.html`, módulos `admin`/`cozinha`) já têm interface completa e falam com todos os endpoints acima — dashboard, pedidos, cadastro/edição de produto, mesas, pausar quiosque, desempenho, encerrar dia, kanban da cozinha e sinalização de item indisponível.

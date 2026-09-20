@@ -88,6 +88,7 @@ ordersRouter.post("/", requireAuth, requireRole("cliente"), validate(createOrder
     `INSERT INTO order_items (order_id, product_id, product_name_snapshot, qty, unit_price_cents, note)
      VALUES (?, ?, ?, ?, ?, ?)`
   );
+  const insertLog = db.prepare("INSERT INTO order_status_log (order_id, status) VALUES (?, ?)");
 
   const orderId = withTransaction(() => {
     const info = insertOrder.run(tableNumber, req.user.sub, subtotalCents, totalCents, note || "");
@@ -95,6 +96,7 @@ ordersRouter.post("/", requireAuth, requireRole("cliente"), validate(createOrder
       const product = byId.get(item.productId);
       insertItem.run(info.lastInsertRowid, product.id, product.name, item.qty, product.price_cents, item.note || "");
     }
+    insertLog.run(info.lastInsertRowid, "Na Fila");
     return info.lastInsertRowid;
   });
 
@@ -143,6 +145,7 @@ ordersRouter.post("/:id/cancel", requireAuth, requireRole("cliente"), (req, res)
     });
   }
   db.prepare("UPDATE orders SET status = 'Cancelado', updated_at = datetime('now') WHERE id = ?").run(id);
+  db.prepare("INSERT INTO order_status_log (order_id, status) VALUES (?, ?)").run(id, "Cancelado");
   const updated = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
   res.json(toApi(updated));
 });
@@ -167,6 +170,7 @@ ordersRouter.patch(
     });
   }
   db.prepare("UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?").run(next, id);
+  db.prepare("INSERT INTO order_status_log (order_id, status) VALUES (?, ?)").run(id, next);
   const updated = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
   res.json(toApi(updated));
   }
