@@ -5,8 +5,27 @@ export const loginSchema = z.object({
   password: z.string().min(4, "Senha muito curta."),
 });
 
+export const signupSchema = z.object({
+  name: z.string().trim().min(2, "Nome muito curto.").max(120),
+  email: z.string().trim().email("E-mail inválido."),
+  password: z.string().min(6, "Senha deve ter ao menos 6 caracteres."),
+});
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().trim().email("E-mail inválido."),
+});
+
+export const refreshSchema = z.object({
+  refreshToken: z.string().min(10, "refreshToken inválido."),
+});
+
+export const updatePasswordSchema = z.object({
+  accessToken: z.string().min(10, "Link de redefinição inválido."),
+  newPassword: z.string().min(6, "Senha deve ter ao menos 6 caracteres."),
+});
+
 export const orderItemSchema = z.object({
-  productId: z.number().int().positive(),
+  productId: z.string().uuid("Produto inválido."),
   qty: z.number().int().positive().max(50),
   note: z.string().trim().max(280).optional().default(""),
 });

@@ -8,17 +8,17 @@
     "node": ">=22.5.0"
   },
   "scripts": {
-    "start": "node --no-warnings src/app.js",
-    "seed": "node --no-warnings src/seed.js"
+    "start": "node --no-warnings src/local.js",
+    "test": "node --no-warnings --test test/"
   },
   "dependencies": {
-    "bcryptjs": "^2.4.3",
+    "@supabase/supabase-js": "^2.116.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "express-rate-limit": "^7.4.0",
     "helmet": "^7.1.0",
-    "jsonwebtoken": "^9.0.2",
+    "mercadopago": "^3.6.1",
     "zod": "^3.23.8"
   }
 }

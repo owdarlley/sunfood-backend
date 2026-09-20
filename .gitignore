@@ -1,6 +1,2 @@
 node_modules/
 .env
-sunfood.db
-sunfood.db-journal
-sunfood.db-wal
-sunfood.db-shm

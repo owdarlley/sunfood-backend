@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db } from "../db.js";
+import { supabaseAdmin } from "../supabase.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { productSchema, soldOutToggleSchema, validate } from "../validation/schemas.js";
 
@@ -12,50 +12,63 @@ function toApi(row) {
     description: row.description,
     longDescription: row.long_description,
     category: row.category,
-    price: row.price_cents / 100,
-    soldOut: !!row.sold_out,
+    price: Number(row.price),
+    soldOut: row.sold_out,
     portion: row.portion,
     prepTime: row.prep_time,
     kcal: row.kcal,
     rating: row.rating,
     reviewCount: row.review_count,
     ingredients: row.ingredients,
-    imageKey: row.image_key,
-    tags: JSON.parse(row.tags_json || "[]"),
+    imageKey: row.mark,
+    tags: row.tags || [],
+  };
+}
+
+function fromApi(p) {
+  return {
+    name: p.name,
+    description: p.description,
+    long_description: p.longDescription,
+    category: p.category,
+    price: p.price,
+    portion: p.portion,
+    prep_time: p.prepTime,
   };
 }
 
 // Público: cardápio do cliente.
-productsRouter.get("/", (req, res) => {
-  const rows = db.prepare("SELECT * FROM products ORDER BY category, name").all();
-  res.json(rows.map(toApi));
+productsRouter.get("/", async (req, res) => {
+  const { data, error } = await supabaseAdmin
+    .from("products")
+    .select("*")
+    .order("category")
+    .order("name");
+  if (error) return res.status(500).json({ error: "Erro ao carregar cardápio." });
+  res.json(data.map(toApi));
 });
 
 // Admin: criar produto novo (corrige o savePf() do protótipo, que nunca persistia).
-productsRouter.post("/", requireAuth, requireRole("admin"), validate(productSchema), (req, res) => {
-  const p = req.body;
-  const info = db
-    .prepare(
-      `INSERT INTO products (name, description, long_description, category, price_cents, portion, prep_time)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(p.name, p.description, p.longDescription, p.category, Math.round(p.price * 100), p.portion, p.prepTime);
-  const row = db.prepare("SELECT * FROM products WHERE id = ?").get(info.lastInsertRowid);
-  res.status(201).json(toApi(row));
+productsRouter.post("/", requireAuth, requireRole("admin"), validate(productSchema), async (req, res) => {
+  const { data, error } = await supabaseAdmin
+    .from("products")
+    .insert(fromApi(req.body))
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: "Não foi possível criar o produto." });
+  res.status(201).json(toApi(data));
 });
 
 // Admin: editar produto existente.
-productsRouter.put("/:id", requireAuth, requireRole("admin"), validate(productSchema), (req, res) => {
-  const id = Number(req.params.id);
-  const existing = db.prepare("SELECT id FROM products WHERE id = ?").get(id);
-  if (!existing) return res.status(404).json({ error: "Produto não encontrado." });
-  const p = req.body;
-  db.prepare(
-    `UPDATE products SET name=?, description=?, long_description=?, category=?, price_cents=?,
-       portion=?, prep_time=?, updated_at=datetime('now') WHERE id=?`
-  ).run(p.name, p.description, p.longDescription, p.category, Math.round(p.price * 100), p.portion, p.prepTime, id);
-  const row = db.prepare("SELECT * FROM products WHERE id = ?").get(id);
-  res.json(toApi(row));
+productsRouter.put("/:id", requireAuth, requireRole("admin"), validate(productSchema), async (req, res) => {
+  const { data, error } = await supabaseAdmin
+    .from("products")
+    .update(fromApi(req.body))
+    .eq("id", req.params.id)
+    .select()
+    .single();
+  if (error || !data) return res.status(404).json({ error: "Produto não encontrado." });
+  res.json(toApi(data));
 });
 
 // Cozinha (ou admin): sinalizar item indisponível / disponível de novo.
@@ -64,15 +77,14 @@ productsRouter.patch(
   requireAuth,
   requireRole("admin", "cozinha"),
   validate(soldOutToggleSchema),
-  (req, res) => {
-    const id = Number(req.params.id);
-    const existing = db.prepare("SELECT id FROM products WHERE id = ?").get(id);
-    if (!existing) return res.status(404).json({ error: "Produto não encontrado." });
-    db.prepare("UPDATE products SET sold_out = ?, updated_at = datetime('now') WHERE id = ?").run(
-      req.body.soldOut ? 1 : 0,
-      id
-    );
-    const row = db.prepare("SELECT * FROM products WHERE id = ?").get(id);
-    res.json(toApi(row));
+  async (req, res) => {
+    const { data, error } = await supabaseAdmin
+      .from("products")
+      .update({ sold_out: req.body.soldOut })
+      .eq("id", req.params.id)
+      .select()
+      .single();
+    if (error || !data) return res.status(404).json({ error: "Produto não encontrado." });
+    res.json(toApi(data));
   }
 );
