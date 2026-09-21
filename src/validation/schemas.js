@@ -5,10 +5,34 @@ export const loginSchema = z.object({
   password: z.string().min(4, "Senha muito curta."),
 });
 
+// Idade mínima pra cadastro — o cardápio vende bebida alcoólica
+// (Caipirinha), então vender/servir pra menor de idade é crime (ECA, art.
+// 243), não só uma regra de produto.
+const MIN_AGE_YEARS = 18;
+
+function hasMinAge(birthDateStr, minYears) {
+  const birth = new Date(birthDateStr + "T00:00:00Z");
+  if (Number.isNaN(birth.getTime())) return false;
+  const limit = new Date();
+  limit.setUTCFullYear(limit.getUTCFullYear() - minYears);
+  return birth.getTime() <= limit.getTime();
+}
+
 export const signupSchema = z.object({
   name: z.string().trim().min(2, "Nome muito curto.").max(120),
   email: z.string().trim().email("E-mail inválido."),
   password: z.string().min(6, "Senha deve ter ao menos 6 caracteres."),
+  phone: z
+    .string()
+    .trim()
+    .refine((v) => v.replace(/\D/g, "").length >= 10, "Telefone inválido."),
+  birthDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Data de nascimento inválida.")
+    .refine((v) => hasMinAge(v, MIN_AGE_YEARS), `É preciso ter ${MIN_AGE_YEARS} anos ou mais para se cadastrar.`),
+  termsAccepted: z.literal(true, {
+    message: "É preciso aceitar os termos de uso e a política de privacidade.",
+  }),
 });
 
 export const forgotPasswordSchema = z.object({

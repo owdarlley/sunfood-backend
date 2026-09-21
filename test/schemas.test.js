@@ -14,9 +14,36 @@ test("loginSchema exige e-mail válido e senha", () => {
   assert.equal(loginSchema.safeParse({ email: "ana@email.com", password: "praia2026" }).success, true);
 });
 
+const validSignup = {
+  name: "Ana",
+  email: "ana@email.com",
+  password: "123456",
+  phone: "11987654321",
+  birthDate: "2000-01-01",
+  termsAccepted: true,
+};
+
 test("signupSchema exige senha com 6+ caracteres", () => {
-  assert.equal(signupSchema.safeParse({ name: "Ana", email: "ana@email.com", password: "12345" }).success, false);
-  assert.equal(signupSchema.safeParse({ name: "Ana", email: "ana@email.com", password: "123456" }).success, true);
+  assert.equal(signupSchema.safeParse({ ...validSignup, password: "12345" }).success, false);
+  assert.equal(signupSchema.safeParse(validSignup).success, true);
+});
+
+test("signupSchema exige telefone com 10+ dígitos", () => {
+  assert.equal(signupSchema.safeParse({ ...validSignup, phone: "123" }).success, false);
+  assert.equal(signupSchema.safeParse({ ...validSignup, phone: "(11) 98765-4321" }).success, true);
+});
+
+test("signupSchema exige 18 anos ou mais (cardápio vende bebida alcoólica)", () => {
+  const menorDeIdade = new Date();
+  menorDeIdade.setFullYear(menorDeIdade.getFullYear() - 17);
+  const dataMenor = menorDeIdade.toISOString().slice(0, 10);
+  assert.equal(signupSchema.safeParse({ ...validSignup, birthDate: dataMenor }).success, false);
+  assert.equal(signupSchema.safeParse({ ...validSignup, birthDate: "2000-01-01" }).success, true);
+});
+
+test("signupSchema exige aceite dos termos", () => {
+  assert.equal(signupSchema.safeParse({ ...validSignup, termsAccepted: false }).success, false);
+  assert.equal(signupSchema.safeParse(validSignup).success, true);
 });
 
 test("createOrderSchema exige productId em formato UUID (não mais número)", () => {

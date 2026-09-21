@@ -83,11 +83,21 @@ authRouter.post("/refresh", validate(refreshSchema), async (req, res) => {
 // cuida disso); virar admin/cozinha é decisão da administração, não do
 // próprio cadastro.
 authRouter.post("/signup", signupLimiter, validate(signupSchema), async (req, res) => {
-  const { name, email, password } = req.body;
+  const { name, email, password, phone, birthDate, termsAccepted } = req.body;
   const { data, error } = await supabaseAuth.auth.signUp({
     email,
     password,
-    options: { data: { name }, emailRedirectTo: process.env.EMAIL_CONFIRM_REDIRECT_URL },
+    options: {
+      data: {
+        name,
+        phone,
+        birth_date: birthDate,
+        // Registra quando o aceite aconteceu, não só que aconteceu — evidência
+        // de consentimento de verdade (LGPD), não um checkbox decorativo.
+        terms_accepted_at: termsAccepted ? new Date().toISOString() : null,
+      },
+      emailRedirectTo: process.env.EMAIL_CONFIRM_REDIRECT_URL,
+    },
   });
 
   if (error) {
