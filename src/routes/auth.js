@@ -87,7 +87,7 @@ authRouter.post("/signup", signupLimiter, validate(signupSchema), async (req, re
   const { data, error } = await supabaseAuth.auth.signUp({
     email,
     password,
-    options: { data: { name } },
+    options: { data: { name }, emailRedirectTo: process.env.EMAIL_CONFIRM_REDIRECT_URL },
   });
 
   if (error) {
