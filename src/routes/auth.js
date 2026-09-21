@@ -132,6 +132,13 @@ authRouter.post("/update-password", forgotLimiter, validate(updatePasswordSchema
   res.json({ message: "Senha redefinida com sucesso." });
 });
 
+// "Quem sou eu" — usado depois do login social (Google), que devolve o
+// access_token direto pro navegador (redirect do Supabase) sem passar pelo
+// nosso /auth/login. O front troca esse token pelos dados do perfil aqui.
+authRouter.get("/me", requireAuth, async (req, res) => {
+  res.json({ user: { id: req.user.sub, name: req.user.name, email: req.user.email, role: req.user.role } });
+});
+
 // Exclusão da própria conta (LGPD, direito de eliminação) — a tela já
 // existia no protótipo, mas não apagava nada de verdade.
 authRouter.post("/delete-account", requireAuth, async (req, res) => {
