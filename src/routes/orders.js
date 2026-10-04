@@ -75,6 +75,9 @@ ordersRouter.post("/", requireAuth, requireRole("cliente"), createOrderLimiter, 
     const product = byId.get(item.productId);
     if (!product) return res.status(404).json({ error: `Produto ${item.productId} não encontrado.` });
     if (product.sold_out) return res.status(409).json({ error: `Item indisponível: ${product.name}.` });
+    if (product.stock_qty !== null && product.stock_qty < item.qty) {
+      return res.status(409).json({ error: `Estoque insuficiente: ${product.name} (restam ${product.stock_qty}).` });
+    }
   }
 
   // Aritmética em centavos pra não acumular erro de ponto flutuante, e só
@@ -99,7 +102,14 @@ ordersRouter.post("/", requireAuth, requireRole("cliente"), createOrderLimiter, 
       }),
     },
   });
-  if (createError) return res.status(500).json({ error: "Não foi possível registrar o pedido." });
+  if (createError) {
+    // Corrida entre dois pedidos concorrentes: o pré-check acima passou, mas
+    // o estoque esgotou entre a checagem e o lock da linha dentro do RPC.
+    if (createError.message?.startsWith("out_of_stock:")) {
+      return res.status(409).json({ error: `Estoque insuficiente: ${createError.message.slice("out_of_stock:".length)}.` });
+    }
+    return res.status(500).json({ error: "Não foi possível registrar o pedido." });
+  }
 
   const { data: row } = await supabaseAdmin.from("orders").select(ORDER_SELECT).eq("id", created.id).single();
   res.status(201).json(toApi(row));

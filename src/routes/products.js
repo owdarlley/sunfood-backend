@@ -13,7 +13,11 @@ function toApi(row) {
     longDescription: row.long_description,
     category: row.category,
     price: Number(row.price),
-    soldOut: row.sold_out,
+    // Esgotado "de fato" é o sinal manual (cozinha/admin) OU o estoque
+    // controlado ter zerado — quem consome essa API não precisa saber qual
+    // dos dois motivos foi.
+    soldOut: row.sold_out || (row.stock_qty !== null && row.stock_qty <= 0),
+    stockQty: row.stock_qty,
     portion: row.portion,
     prepTime: row.prep_time,
     kcal: row.kcal,
@@ -26,7 +30,7 @@ function toApi(row) {
 }
 
 function fromApi(p) {
-  return {
+  const row = {
     name: p.name,
     description: p.description,
     long_description: p.longDescription,
@@ -35,6 +39,11 @@ function fromApi(p) {
     portion: p.portion,
     prep_time: p.prepTime,
   };
+  // Só grava o estoque quando ele veio no corpo: editar nome/preço não pode
+  // sobrescrever o saldo com um valor velho (pedidos feitos enquanto o
+  // formulário estava aberto seriam "desfeitos").
+  if (p.stockQty !== undefined) row.stock_qty = p.stockQty;
+  return row;
 }
 
 // Público: cardápio do cliente.
