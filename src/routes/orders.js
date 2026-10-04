@@ -3,7 +3,15 @@ import rateLimit from "express-rate-limit";
 import { supabaseAdmin } from "../supabase.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { createOrderSchema, orderStatusUpdateSchema, validate } from "../validation/schemas.js";
-import { computeOrderTotals, meetsMinimumOrder, canCancel, isValidTransition, VALID_TRANSITIONS } from "../business-rules.js";
+import {
+  computeOrderTotals,
+  meetsMinimumOrder,
+  canCancel,
+  isValidTransition,
+  awaitingOnlinePayment,
+  VALID_TRANSITIONS,
+} from "../business-rules.js";
+import { cancelOrderWithRefund, expireUnpaidOrders } from "../order-payments.js";
 
 export const ordersRouter = Router();
 
@@ -26,6 +34,7 @@ function toApi(row) {
     subtotal: Number(row.subtotal),
     total: Number(row.total),
     note: row.note,
+    paymentMethod: row.payment_method,
     paymentProvider: row.payment_provider,
     paymentId: row.payment_id,
     paymentStatus: row.payment_status,
@@ -46,7 +55,7 @@ const ORDER_SELECT = "*, order_items(*)";
 // Cliente: cria um pedido. Todas as regras de negócio são checadas aqui,
 // no servidor — o front pode ser enganado, o backend não.
 ordersRouter.post("/", requireAuth, requireRole("cliente"), createOrderLimiter, validate(createOrderSchema), async (req, res) => {
-  const { tableNumber, items, note } = req.body;
+  const { tableNumber, items, note, paymentMethod } = req.body;
 
   const { data: settings } = await supabaseAdmin.from("kiosk_settings").select("*").eq("id", 1).single();
   if (settings?.paused) {
@@ -96,6 +105,7 @@ ordersRouter.post("/", requireAuth, requireRole("cliente"), createOrderLimiter, 
       fee: feeCents / 100,
       total: totalCents / 100,
       note: note || "",
+      paymentMethod,
       items: items.map((item) => {
         const product = byId.get(item.productId);
         return { productId: product.id, name: product.name, price: Number(product.price), qty: item.qty, note: item.note || "" };
@@ -127,13 +137,16 @@ ordersRouter.get("/mine", requireAuth, requireRole("cliente"), async (req, res) 
 });
 
 // Admin/cozinha: lista de pedidos (opcionalmente filtrada por status), para o kanban/painel.
+// A cozinha não vê pedido de PIX/cartão ainda não pago; o admin vê tudo.
 ordersRouter.get("/", requireAuth, requireRole("admin", "cozinha"), async (req, res) => {
+  await expireUnpaidOrders();
   const { status } = req.query;
   let query = supabaseAdmin.from("orders").select(ORDER_SELECT).order("created_at", { ascending: false });
   if (status) query = query.eq("status", status);
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: "Erro ao carregar pedidos." });
-  res.json(data.map(toApi));
+  const visible = req.user.role === "cozinha" ? data.filter((row) => !awaitingOnlinePayment(row)) : data;
+  res.json(visible.map(toApi));
 });
 
 // Qualquer papel autenticado pode ver o detalhe — cliente só o próprio pedido.
@@ -151,6 +164,7 @@ ordersRouter.get("/:id", requireAuth, async (req, res) => {
 });
 
 // Cliente: cancelar — RN04, só permitido enquanto o status for "Na Fila".
+// Pedido já pago no app é estornado no mesmo meio de pagamento.
 ordersRouter.post("/:id/cancel", requireAuth, requireRole("cliente"), async (req, res) => {
   const { data: row, error } = await supabaseAdmin
     .from("orders")
@@ -167,11 +181,8 @@ ordersRouter.post("/:id/cancel", requireAuth, requireRole("cliente"), async (req
     });
   }
 
-  const { error: rpcError } = await supabaseAdmin.rpc("set_order_status", {
-    p_order_id: row.id,
-    p_status: "Cancelado",
-  });
-  if (rpcError) return res.status(500).json({ error: "Não foi possível cancelar o pedido." });
+  const result = await cancelOrderWithRefund(row);
+  if (!result.ok) return res.status(result.httpStatus).json({ error: result.error });
 
   const { data: updated } = await supabaseAdmin.from("orders").select(ORDER_SELECT).eq("id", row.id).single();
   res.json(toApi(updated));
@@ -199,11 +210,20 @@ ordersRouter.patch(
       });
     }
 
-    const { error: rpcError } = await supabaseAdmin.rpc("set_order_status", {
-      p_order_id: row.id,
-      p_status: next,
-    });
-    if (rpcError) return res.status(500).json({ error: "Não foi possível atualizar o pedido." });
+    if (next === "Em Preparo" && awaitingOnlinePayment(row)) {
+      return res.status(409).json({ error: "Pedido ainda não foi pago — aguarde a confirmação do pagamento." });
+    }
+
+    if (next === "Cancelado") {
+      const result = await cancelOrderWithRefund(row);
+      if (!result.ok) return res.status(result.httpStatus).json({ error: result.error });
+    } else {
+      const { error: rpcError } = await supabaseAdmin.rpc("set_order_status", {
+        p_order_id: row.id,
+        p_status: next,
+      });
+      if (rpcError) return res.status(500).json({ error: "Não foi possível atualizar o pedido." });
+    }
 
     const { data: updated } = await supabaseAdmin.from("orders").select(ORDER_SELECT).eq("id", row.id).single();
     res.json(toApi(updated));

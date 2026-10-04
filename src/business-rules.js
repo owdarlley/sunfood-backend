@@ -30,3 +30,24 @@ export function meetsMinimumOrder(subtotalCents) {
 export function canCancel(status) {
   return status === "Na Fila";
 }
+
+// Formas de pagamento: PIX e cartão são pagos no app (Mercado Pago) antes de
+// a cozinha começar; "entrega" é pago ao garçom (maquininha ou dinheiro).
+export const PAYMENT_METHODS = ["pix", "cartao", "entrega"];
+
+// Pedido pago no app que ainda não teve o pagamento confirmado — não pode
+// entrar em preparo nem aparecer pra cozinha.
+export function awaitingOnlinePayment(order) {
+  return order.payment_method !== "entrega" && order.payment_status !== "approved";
+}
+
+// Cancelar um pedido já pago no app exige devolver o dinheiro.
+export function needsRefund(order) {
+  return order.payment_method !== "entrega" && order.payment_status === "approved" && !!order.payment_id;
+}
+
+// O pagamento aprovado precisa cobrir o total do pedido (tolerância de 1
+// centavo por arredondamento) — evita liberar pedido pago a menor.
+export function paymentCoversOrder(paidAmount, orderTotal) {
+  return Math.round(Number(paidAmount) * 100) >= Math.round(Number(orderTotal) * 100) - 1;
+}

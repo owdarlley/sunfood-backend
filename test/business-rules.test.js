@@ -7,6 +7,9 @@ import {
   computeOrderTotals,
   meetsMinimumOrder,
   canCancel,
+  awaitingOnlinePayment,
+  needsRefund,
+  paymentCoversOrder,
 } from "../src/business-rules.js";
 
 test("RN01: pedido abaixo de R$10 é rejeitado", () => {
@@ -50,4 +53,24 @@ test("transições fora de ordem são rejeitadas (não pode pular etapa nem volt
   assert.equal(isValidTransition("Pronto", "Na Fila"), false);
   assert.equal(isValidTransition("Entregue", "Na Fila"), false);
   assert.equal(isValidTransition("Cancelado", "Na Fila"), false);
+});
+
+test("pedido de PIX/cartão não pago fica fora da cozinha; na entrega entra direto", () => {
+  assert.equal(awaitingOnlinePayment({ payment_method: "pix", payment_status: "pending" }), true);
+  assert.equal(awaitingOnlinePayment({ payment_method: "cartao", payment_status: "rejected" }), true);
+  assert.equal(awaitingOnlinePayment({ payment_method: "pix", payment_status: "approved" }), false);
+  assert.equal(awaitingOnlinePayment({ payment_method: "entrega", payment_status: "pending" }), false);
+});
+
+test("só estorna pedido pago no app com pagamento identificado", () => {
+  assert.equal(needsRefund({ payment_method: "pix", payment_status: "approved", payment_id: "123" }), true);
+  assert.equal(needsRefund({ payment_method: "cartao", payment_status: "approved", payment_id: "456" }), true);
+  assert.equal(needsRefund({ payment_method: "pix", payment_status: "pending", payment_id: "123" }), false);
+  assert.equal(needsRefund({ payment_method: "entrega", payment_status: "approved", payment_id: null }), false);
+});
+
+test("pagamento aprovado precisa cobrir o total do pedido", () => {
+  assert.equal(paymentCoversOrder(27.5, "27.50"), true);
+  assert.equal(paymentCoversOrder(27.49, "27.50"), true); // 1 centavo de arredondamento
+  assert.equal(paymentCoversOrder(20, "27.50"), false);
 });

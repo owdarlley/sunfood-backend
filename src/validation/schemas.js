@@ -58,6 +58,11 @@ export const createOrderSchema = z.object({
   tableNumber: z.number().int().positive(),
   items: z.array(orderItemSchema).min(1, "O carrinho está vazio."),
   note: z.string().trim().max(280).optional().default(""),
+  paymentMethod: z.enum(["pix", "cartao", "entrega"]).optional().default("pix"),
+});
+
+export const cardCheckoutSchema = z.object({
+  returnUrl: z.string().url("Endereço de retorno inválido."),
 });
 
 export const productSchema = z.object({

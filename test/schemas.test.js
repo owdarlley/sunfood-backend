@@ -88,3 +88,10 @@ test("productSchema: estoque ausente não vira null (não sobrescreve o saldo na
   assert.equal(productSchema.safeParse({ ...base, stockQty: -1 }).success, false);
   assert.equal(productSchema.safeParse({ ...base, stockQty: 1.5 }).success, false);
 });
+
+test("forma de pagamento do pedido: padrão PIX, só aceita pix/cartao/entrega", () => {
+  const base = { tableNumber: 3, items: [{ productId: "3f1c6a52-6b1e-4b8e-9d0a-0c6c4a1b2d3e", qty: 1 }] };
+  assert.equal(createOrderSchema.parse(base).paymentMethod, "pix");
+  assert.equal(createOrderSchema.parse({ ...base, paymentMethod: "entrega" }).paymentMethod, "entrega");
+  assert.equal(createOrderSchema.safeParse({ ...base, paymentMethod: "fiado" }).success, false);
+});
