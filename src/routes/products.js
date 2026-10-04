@@ -13,7 +13,11 @@ function toApi(row) {
     longDescription: row.long_description,
     category: row.category,
     price: Number(row.price),
-    soldOut: row.sold_out,
+    // Esgotado "de fato" é o sinal manual (cozinha/admin) OU o estoque
+    // controlado ter zerado — quem consome essa API não precisa saber qual
+    // dos dois motivos foi.
+    soldOut: row.sold_out || (row.stock_qty !== null && row.stock_qty <= 0),
+    stockQty: row.stock_qty,
     portion: row.portion,
     prepTime: row.prep_time,
     kcal: row.kcal,
@@ -34,6 +38,7 @@ function fromApi(p) {
     price: p.price,
     portion: p.portion,
     prep_time: p.prepTime,
+    stock_qty: p.stockQty === undefined ? null : p.stockQty,
   };
 }
 

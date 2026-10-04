@@ -68,6 +68,8 @@ export const productSchema = z.object({
   price: z.number().positive().max(10000),
   portion: z.string().trim().max(80).optional().default(""),
   prepTime: z.string().trim().max(40).optional().default(""),
+  // null = estoque não controlado (comportamento atual, ilimitado).
+  stockQty: z.union([z.number().int().min(0), z.null()]).optional().default(null),
 });
 
 export const tableToggleSchema = z.object({
