@@ -30,7 +30,7 @@ function toApi(row) {
 }
 
 function fromApi(p) {
-  return {
+  const row = {
     name: p.name,
     description: p.description,
     long_description: p.longDescription,
@@ -38,8 +38,12 @@ function fromApi(p) {
     price: p.price,
     portion: p.portion,
     prep_time: p.prepTime,
-    stock_qty: p.stockQty === undefined ? null : p.stockQty,
   };
+  // Só grava o estoque quando ele veio no corpo: editar nome/preço não pode
+  // sobrescrever o saldo com um valor velho (pedidos feitos enquanto o
+  // formulário estava aberto seriam "desfeitos").
+  if (p.stockQty !== undefined) row.stock_qty = p.stockQty;
+  return row;
 }
 
 // Público: cardápio do cliente.

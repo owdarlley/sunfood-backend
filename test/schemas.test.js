@@ -79,3 +79,12 @@ test("productSchema rejeita categoria fora da lista e preço não positivo", () 
   assert.equal(productSchema.safeParse({ ...base, price: 0 }).success, false);
   assert.equal(productSchema.safeParse({ ...base, price: -5 }).success, false);
 });
+
+test("productSchema: estoque ausente não vira null (não sobrescreve o saldo na edição)", () => {
+  const base = { name: "Suco", category: "Bebidas", price: 10 };
+  assert.equal(productSchema.parse(base).stockQty, undefined);
+  assert.equal(productSchema.parse({ ...base, stockQty: null }).stockQty, null);
+  assert.equal(productSchema.parse({ ...base, stockQty: 5 }).stockQty, 5);
+  assert.equal(productSchema.safeParse({ ...base, stockQty: -1 }).success, false);
+  assert.equal(productSchema.safeParse({ ...base, stockQty: 1.5 }).success, false);
+});
