@@ -111,7 +111,7 @@ const auth = {
     db.pending[email] = true;
     // Igual ao trigger handle_new_user do banco.
     db.profiles.push({ id, email, name: options.data.name, role: "cliente", phone: options.data.phone,
-      birth_date: options.data.birth_date, terms_accepted_at: options.data.terms_accepted_at });
+      cpf: options.data.cpf ?? null, birth_date: options.data.birth_date, terms_accepted_at: options.data.terms_accepted_at });
     return { data: { user: { id }, session: null }, error: null };
   },
   async signInWithPassword({ email, password }) {
@@ -165,16 +165,30 @@ function staff(role) {
 }
 
 const ana = { name: "Ana Teste", email: "ana@teste.com", password: "senha-forte-123", phone: "11999999999",
-  birthDate: "2000-01-01", termsAccepted: true };
+  cpf: "529.982.247-25", birthDate: "2000-01-01", termsAccepted: true };
 let anaToken;
 
 test("cadastro cria conta e pede confirmação por e-mail", async () => {
   const r = await api("POST", "/auth/signup", ana);
   assert.equal(r.status, 201, JSON.stringify(r.body));
   assert.equal(r.body.requiresEmailConfirmation, true);
-  const again = await api("POST", "/auth/signup", ana);
+  assert.equal(db.profiles.find((p) => p.email === ana.email).cpf, "52998224725", "grava só os dígitos");
+  const again = await api("POST", "/auth/signup", { ...ana, cpf: "111.444.777-35" });
   assert.equal(again.status, 400);
   assert.match(again.body.error, /já tem cadastro/);
+});
+
+test("cadastro recusa CPF inválido ou de outra conta", async () => {
+  const outra = { ...ana, email: "outra@teste.com" };
+  for (const cpf of ["123.456.789-00", "111.111.111-11", "5299822472", ""]) {
+    const r = await api("POST", "/auth/signup", { ...outra, cpf });
+    assert.equal(r.status, 400, cpf);
+    assert.equal(r.body.details[0].path[0], "cpf", cpf);
+  }
+  const r = await api("POST", "/auth/signup", outra);
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /CPF já está cadastrado/);
+  assert.ok(!db.passwords[outra.email], "não cria a conta");
 });
 
 test("login com e-mail não confirmado avisa e permite reenviar", async () => {
@@ -315,7 +329,7 @@ test("quiosque pausado e dia encerrado recusam pedidos", async () => {
   assert.equal(r.status, 201);
 });
 
-test("login com Google: completa telefone, nascimento e termos antes de pedir", async () => {
+test("login com Google: completa telefone, CPF, nascimento e termos antes de pedir", async () => {
   // O Supabase cria a conta direto no retorno do Google; o trigger só tem nome e e-mail.
   db.profiles.push({ id: "g1", email: "bia@gmail.com", name: "Bia Google", role: "cliente",
     phone: null, birth_date: null, terms_accepted_at: null });
@@ -325,21 +339,37 @@ test("login com Google: completa telefone, nascimento e termos antes de pedir", 
   r = await api("POST", "/orders", { tableNumber: 1, items: [{ productId: P2, qty: 2 }], paymentMethod: "entrega" }, "tok-g1");
   assert.equal(r.status, 403);
   assert.equal(r.body.code, "profile_incomplete");
-  const dados = { name: "Bia Google", phone: "11988887777", birthDate: "2015-01-01", termsAccepted: true };
+  const dados = { name: "Bia Google", phone: "11988887777", cpf: "111.444.777-35", birthDate: "2015-01-01", termsAccepted: true };
   r = await api("POST", "/auth/complete-profile", dados, "tok-g1");
   assert.equal(r.status, 400, "menor de idade não completa");
+  r = await api("POST", "/auth/complete-profile", { ...dados, birthDate: "1999-05-05", cpf: "111.444.777-36" }, "tok-g1");
+  assert.equal(r.status, 400, "CPF com dígito errado não completa");
+  r = await api("POST", "/auth/complete-profile", { ...dados, birthDate: "1999-05-05", cpf: ana.cpf }, "tok-g1");
+  assert.equal(r.status, 409, "CPF de outra conta não completa");
   r = await api("POST", "/auth/complete-profile", { ...dados, birthDate: "1999-05-05", termsAccepted: false }, "tok-g1");
   assert.equal(r.status, 400, "sem aceitar os termos não completa");
   r = await api("POST", "/auth/complete-profile", { ...dados, birthDate: "1999-05-05" }, "tok-g1");
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(r.body.user.profileComplete, true);
   assert.ok(db.profiles.find((p) => p.id === "g1").terms_accepted_at);
+  assert.equal(db.profiles.find((p) => p.id === "g1").cpf, "11144477735");
   r = await api("GET", "/auth/me", null, "tok-g1");
   assert.equal(r.body.user.profileComplete, true);
   r = await api("POST", "/orders", { tableNumber: 1, items: [{ productId: P2, qty: 2 }], paymentMethod: "entrega" }, "tok-g1");
   assert.equal(r.status, 201, JSON.stringify(r.body));
   r = await api("GET", "/auth/me", null, "tok-admin-1");
   assert.equal(r.body.user.profileComplete, true, "equipe não precisa completar");
+});
+
+test("conta antiga sem CPF precisa completar antes de pedir", async () => {
+  db.profiles.push({ id: "v1", email: "velho@teste.com", name: "Cliente Antigo", role: "cliente",
+    phone: "11977776666", cpf: null, birth_date: "1990-01-01", terms_accepted_at: "2026-09-01T00:00:00Z" });
+  db.users["tok-v1"] = { id: "v1", email: "velho@teste.com" };
+  let r = await api("GET", "/auth/me", null, "tok-v1");
+  assert.equal(r.body.user.profileComplete, false);
+  r = await api("POST", "/orders", { tableNumber: 1, items: [{ productId: P2, qty: 2 }], paymentMethod: "entrega" }, "tok-v1");
+  assert.equal(r.status, 403);
+  assert.match(r.body.error, /CPF/);
 });
 
 test("excluir conta apaga o acesso e mantém os pedidos sem dono", async () => {

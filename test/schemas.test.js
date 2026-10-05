@@ -22,6 +22,7 @@ const validSignup = {
   email: "ana@email.com",
   password: "123456",
   phone: "11987654321",
+  cpf: "529.982.247-25",
   birthDate: "2000-01-01",
   termsAccepted: true,
 };
@@ -42,6 +43,16 @@ test("signupSchema exige 18 anos ou mais (cardápio vende bebida alcoólica)", (
   const dataMenor = menorDeIdade.toISOString().slice(0, 10);
   assert.equal(signupSchema.safeParse({ ...validSignup, birthDate: dataMenor }).success, false);
   assert.equal(signupSchema.safeParse({ ...validSignup, birthDate: "2000-01-01" }).success, true);
+});
+
+test("signupSchema exige CPF com dígitos verificadores certos e grava só os números", () => {
+  for (const cpf of ["123.456.789-00", "529.982.247-24", "000.000.000-00", "999.999.999-99", "5299822472", "abc", ""]) {
+    assert.equal(signupSchema.safeParse({ ...validSignup, cpf }).success, false, cpf);
+  }
+  const { cpf, ...semCpf } = validSignup;
+  assert.equal(signupSchema.safeParse(semCpf).success, false);
+  assert.equal(signupSchema.parse(validSignup).cpf, "52998224725");
+  assert.equal(signupSchema.parse({ ...validSignup, cpf: "11144477735" }).cpf, "11144477735");
 });
 
 test("signupSchema exige aceite dos termos", () => {

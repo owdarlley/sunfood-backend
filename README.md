@@ -34,7 +34,7 @@ npm test    # roda os testes (ver abaixo)
 | Onde | O que testa | Como rodar |
 | --- | --- | --- |
 | `test/*.test.js` | Regras de negócio, permissões por papel, validação, assinatura do webhook e o fluxo completo da API (cadastro → pedido → entregue → excluir conta) com um Supabase falso em memória | `npm test` (roda sozinho no GitHub a cada push) |
-| `test/banco/*.sql` | As funções do banco de verdade: estoque, status do pedido, formas de pagamento, prazo de cancelamento, pedido mínimo, painel e encerrar o dia | Colar no SQL Editor do Supabase |
+| `test/banco/*.sql` | As funções do banco de verdade: CPF do cadastro, estoque, status do pedido, formas de pagamento, prazo de cancelamento, pedido mínimo, painel e encerrar o dia | Colar no SQL Editor do Supabase |
 
 Os `.sql` terminam com um erro **de propósito**: o Postgres desfaz tudo o que fizeram, então nada fica gravado. Passou = a mensagem começa com `TESTE_..._PASSOU`; qualquer `FALHA ...` é um bug.
 

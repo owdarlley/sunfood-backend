@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MAX_CANCEL_WINDOW_MINUTES, PAYMENT_METHODS, RECEIVED_WITH } from "../business-rules.js";
+import { isValidCpf, onlyDigits } from "./cpf.js";
 
 export const loginSchema = z.object({
   email: z.string().trim().email("E-mail inválido."),
@@ -28,6 +29,12 @@ const birthDateField = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Data de nascimento inválida.")
   .refine((v) => hasMinAge(v, MIN_AGE_YEARS), `É preciso ter ${MIN_AGE_YEARS} anos ou mais para se cadastrar.`);
+// Aceita com ou sem pontuação; grava só os 11 dígitos.
+const cpfField = z
+  .string()
+  .trim()
+  .refine(isValidCpf, "CPF inválido. Confira os números.")
+  .transform(onlyDigits);
 const termsField = z.literal(true, {
   message: "É preciso aceitar os termos de uso e a política de privacidade.",
 });
@@ -37,6 +44,7 @@ export const signupSchema = z.object({
   email: z.string().trim().email("E-mail inválido."),
   password: z.string().min(6, "Senha deve ter ao menos 6 caracteres."),
   phone: phoneField,
+  cpf: cpfField,
   birthDate: birthDateField,
   termsAccepted: termsField,
 });
@@ -45,6 +53,7 @@ export const signupSchema = z.object({
 export const completeProfileSchema = z.object({
   name: nameField,
   phone: phoneField,
+  cpf: cpfField,
   birthDate: birthDateField,
   termsAccepted: termsField,
 });
