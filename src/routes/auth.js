@@ -40,6 +40,15 @@ const forgotLimiter = rateLimit({
   message: { error: "Muitas solicitações. Tente novamente mais tarde." },
 });
 
+// Um CPF por conta: evita que a mesma pessoa abra várias contas, ou use o
+// CPF de outra. O banco também garante isso (índice único em profiles.cpf).
+const CPF_TAKEN = "Este CPF já está cadastrado em outra conta.";
+
+async function cpfTaken(cpf, exceptUserId) {
+  const { data } = await supabaseAdmin.from("profiles").select("id").eq("cpf", cpf).maybeSingle();
+  return Boolean(data && data.id !== exceptUserId);
+}
+
 authRouter.post("/login", loginLimiter, validate(loginSchema), async (req, res) => {
   const { email, password } = req.body;
   const { data, error } = await supabaseAuth.auth.signInWithPassword({ email, password });
@@ -61,7 +70,7 @@ authRouter.post("/login", loginLimiter, validate(loginSchema), async (req, res) 
 
   const { data: profile } = await supabaseAdmin
     .from("profiles")
-    .select("role, name, phone, birth_date, terms_accepted_at")
+    .select("role, name, phone, cpf, birth_date, terms_accepted_at")
     .eq("id", data.user.id)
     .single();
 
@@ -95,7 +104,8 @@ authRouter.post("/refresh", validate(refreshSchema), async (req, res) => {
 // cuida disso); virar admin/cozinha é decisão da administração, não do
 // próprio cadastro.
 authRouter.post("/signup", signupLimiter, validate(signupSchema), async (req, res) => {
-  const { name, email, password, phone, birthDate, termsAccepted } = req.body;
+  const { name, email, password, phone, cpf, birthDate, termsAccepted } = req.body;
+  if (await cpfTaken(cpf)) return res.status(400).json({ error: CPF_TAKEN });
   const { data, error } = await supabaseAuth.auth.signUp({
     email,
     password,
@@ -103,6 +113,7 @@ authRouter.post("/signup", signupLimiter, validate(signupSchema), async (req, re
       data: {
         name,
         phone,
+        cpf,
         birth_date: birthDate,
         // Registra quando o aceite aconteceu, não só que aconteceu — evidência
         // de consentimento de verdade (LGPD), não um checkbox decorativo.
@@ -175,13 +186,16 @@ authRouter.get("/me", requireAuth, async (req, res) => {
 });
 
 // Quem entrou pelo Google completa aqui o que o formulário de cadastro
-// pediria: telefone, data de nascimento (18+) e aceite dos termos (LGPD).
+// pediria: telefone, CPF, data de nascimento (18+) e aceite dos termos (LGPD).
 authRouter.post("/complete-profile", requireAuth, validate(completeProfileSchema), async (req, res) => {
-  const { name, phone, birthDate } = req.body;
+  const { name, phone, cpf, birthDate } = req.body;
+  if (await cpfTaken(cpf, req.user.sub)) return res.status(409).json({ error: CPF_TAKEN });
   const { error } = await supabaseAdmin
     .from("profiles")
-    .update({ name, phone, birth_date: birthDate, terms_accepted_at: new Date().toISOString() })
+    .update({ name, phone, cpf, birth_date: birthDate, terms_accepted_at: new Date().toISOString() })
     .eq("id", req.user.sub);
+  // 23505 = o índice único do banco barrou (dois cadastros ao mesmo tempo com o mesmo CPF).
+  if (error?.code === "23505") return res.status(409).json({ error: CPF_TAKEN });
   if (error) return res.status(500).json({ error: "Não foi possível salvar seu cadastro." });
   const { sub: id, email, role } = req.user;
   res.json({ user: { id, name, email, role, profileComplete: true } });
