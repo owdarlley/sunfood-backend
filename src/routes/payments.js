@@ -95,7 +95,6 @@ paymentsRouter.post("/pix/:orderId", requireAuth, requireRole("cliente"), pixLim
       .update({ payment_provider: "mercadopago", payment_id: payment.paymentId })
       .eq("id", order.id);
     res.json({
-      simulated: payment.simulated,
       qrCode: payment.qrCode,
       qrCodeBase64: payment.qrCodeBase64,
       status: payment.status,
@@ -139,7 +138,7 @@ paymentsRouter.post(
       // payment_id só é preenchido quando o pagamento é aprovado (webhook):
       // é ele, não o checkout, que o estorno usa.
       await supabaseAdmin.from("orders").update({ payment_provider: "mercadopago" }).eq("id", order.id);
-      res.json({ simulated: checkout.simulated, checkoutUrl: checkout.checkoutUrl });
+      res.json({ checkoutUrl: checkout.checkoutUrl });
     } catch (e) {
       console.error("Erro ao criar checkout de cartão:", e);
       res.status(502).json({ error: "Falha ao abrir o pagamento com cartão. Tente novamente." });
