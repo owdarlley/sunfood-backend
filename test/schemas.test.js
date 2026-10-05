@@ -8,6 +8,7 @@ import {
   kioskCancelWindowSchema,
   orderStatusUpdateSchema,
   productSchema,
+  resendConfirmationSchema,
 } from "../src/validation/schemas.js";
 
 test("loginSchema exige e-mail válido e senha", () => {
@@ -110,4 +111,10 @@ test("recebimento aceita dinheiro, cartao, pix ou null (desfazer)", () => {
   for (const v of ["dinheiro", "cartao", "pix", null]) assert.equal(paymentReceivedSchema.safeParse({ receivedWith: v }).success, true);
   assert.equal(paymentReceivedSchema.safeParse({ receivedWith: "cheque" }).success, false);
   assert.equal(paymentReceivedSchema.safeParse({}).success, false);
+});
+
+test("resendConfirmationSchema exige um e-mail válido", () => {
+  assert.equal(resendConfirmationSchema.safeParse({ email: " ana@email.com " }).success, true);
+  assert.equal(resendConfirmationSchema.safeParse({ email: "ana" }).success, false);
+  assert.equal(resendConfirmationSchema.safeParse({}).success, false);
 });
