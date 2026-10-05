@@ -4,10 +4,8 @@ import { MercadoPagoConfig, Payment, PaymentRefund, Preference } from "mercadopa
 const ACCESS_TOKEN = process.env.MERCADOPAGO_ACCESS_TOKEN;
 const WEBHOOK_SECRET = process.env.MERCADOPAGO_WEBHOOK_SECRET;
 
-// Sem token configurado, o checkout roda em modo simulado (nenhuma chamada
-// de rede é feita) — assim o resto do app continua testável antes de você
-// ter uma conta Mercado Pago aprovada. Isso NUNCA deve ficar assim em
-// produção: sem token real, nenhum PIX gerado aqui cobra dinheiro de verdade.
+// Sem token configurado, as rotas de pagamento nem chamam este módulo: PIX e
+// cartão são aprovados na hora como "provisorio" (ver routes/payments.js).
 export const paymentsConfigured = !!ACCESS_TOKEN;
 
 let clients = null;
@@ -44,16 +42,6 @@ export function toOrderPaymentStatus(mpStatus) {
 // copia-e-cola e o QR code em base64 pra tela mostrar, mais o id do
 // pagamento (guardado no pedido pra casar com o webhook depois).
 export async function createPixPayment({ orderId, amount, payerEmail, notificationUrl, description }) {
-  if (!paymentsConfigured) {
-    return {
-      simulated: true,
-      paymentId: `sim_${orderId}`,
-      status: "pending",
-      qrCode: null,
-      qrCodeBase64: null,
-    };
-  }
-
   const result = await client().create({
     body: {
       transaction_amount: Number(amount.toFixed(2)),
@@ -68,7 +56,6 @@ export async function createPixPayment({ orderId, amount, payerEmail, notificati
 
   const txData = result.point_of_interaction?.transaction_data;
   return {
-    simulated: false,
     paymentId: String(result.id),
     status: result.status, // 'pending' até o pagador escanear e pagar
     qrCode: txData?.qr_code || null,
@@ -80,10 +67,6 @@ export async function createPixPayment({ orderId, amount, payerEmail, notificati
 // pra onde o cliente é levado. Os dados do cartão são digitados na página do
 // próprio Mercado Pago — nunca passam pelo app nem pelo nosso servidor.
 export async function createCardCheckout({ orderId, amount, payerEmail, notificationUrl, returnUrl, description }) {
-  if (!paymentsConfigured) {
-    return { simulated: true, preferenceId: `sim_${orderId}`, checkoutUrl: null };
-  }
-
   const now = Date.now();
   const result = await mpClients().preference.create({
     body: {
@@ -113,8 +96,11 @@ export async function createCardCheckout({ orderId, amount, payerEmail, notifica
     },
   });
 
-  return { simulated: false, preferenceId: String(result.id), checkoutUrl: result.init_point };
+  return { preferenceId: String(result.id), checkoutUrl: result.init_point };
 }
+
+// Pedidos antigos, do extinto modo simulado, têm payment_id "sim_<pedido>":
+// nunca houve cobrança, então não há o que estornar nem consultar.
 
 // Devolve o valor total de um pagamento aprovado (cancelamento de pedido pago).
 export async function refundPayment(paymentId) {

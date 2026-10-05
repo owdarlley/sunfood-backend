@@ -1,5 +1,5 @@
 {
-  "name": "sunfood-server",
+  "name": "sunfood-backend",
   "version": "1.0.0",
   "private": true,
   "type": "module",

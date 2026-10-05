@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_CANCEL_WINDOW_MINUTES, PAYMENT_METHODS, RECEIVED_WITH } from "../business-rules.js";
 
 export const loginSchema = z.object({
   email: z.string().trim().email("E-mail inválido."),
@@ -75,12 +76,12 @@ export const createOrderSchema = z.object({
   tableNumber: z.number().int().positive(),
   items: z.array(orderItemSchema).min(1, "O carrinho está vazio."),
   note: z.string().trim().max(280).optional().default(""),
-  paymentMethod: z.enum(["pix", "cartao", "entrega"]).optional().default("pix"),
+  paymentMethod: z.enum(PAYMENT_METHODS).optional().default("pix"),
 });
 
 // null desfaz um recebimento marcado por engano.
 export const paymentReceivedSchema = z.object({
-  receivedWith: z.union([z.enum(["dinheiro", "cartao", "pix"]), z.null()]),
+  receivedWith: z.union([z.enum(RECEIVED_WITH), z.null()]),
 });
 
 export const cardCheckoutSchema = z.object({
@@ -122,7 +123,7 @@ export const kioskCancelWindowSchema = z.object({
     .number()
     .int("Use um número inteiro de minutos.")
     .min(0, "Não pode ser negativo.")
-    .max(120, "O máximo é 120 minutos."),
+    .max(MAX_CANCEL_WINDOW_MINUTES, `O máximo é ${MAX_CANCEL_WINDOW_MINUTES} minutos.`),
 });
 
 export const orderStatusUpdateSchema = z.object({
