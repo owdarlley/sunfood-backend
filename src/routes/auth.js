@@ -6,6 +6,7 @@ import {
   loginSchema,
   signupSchema,
   forgotPasswordSchema,
+  resendConfirmationSchema,
   refreshSchema,
   updatePasswordSchema,
   validate,
@@ -44,6 +45,15 @@ authRouter.post("/login", loginLimiter, validate(loginSchema), async (req, res) 
 
   // Mesma mensagem genérica pra e-mail inexistente e senha errada — evita
   // que um atacante descubra quais e-mails existem na base (user enumeration).
+  // O Supabase só responde "email_not_confirmed" quando a senha está certa,
+  // então avisar isso não revela nada pra quem está chutando senhas — e
+  // evita que o cliente ache que errou a senha quando só falta confirmar.
+  if (error?.code === "email_not_confirmed") {
+    return res.status(403).json({
+      error: "Confirme seu e-mail antes de entrar. Procure o e-mail do Sunfood na caixa de entrada ou no spam.",
+      code: "email_not_confirmed",
+    });
+  }
   if (error || !data.session) {
     return res.status(401).json({ error: "Credenciais inválidas." });
   }
@@ -113,6 +123,18 @@ authRouter.post("/signup", signupLimiter, validate(signupSchema), async (req, re
       ? "Conta criada."
       : "Conta criada — confira seu e-mail para confirmar antes de entrar.",
   });
+});
+
+// Reenvia o e-mail de confirmação de cadastro (o link expira, cai no spam...).
+// Sempre responde OK, exista ou não a conta, pelo mesmo motivo do
+// forgot-password: não vazar quais e-mails têm cadastro.
+authRouter.post("/resend-confirmation", forgotLimiter, validate(resendConfirmationSchema), async (req, res) => {
+  await supabaseAuth.auth.resend({
+    type: "signup",
+    email: req.body.email,
+    options: { emailRedirectTo: process.env.EMAIL_CONFIRM_REDIRECT_URL },
+  });
+  res.json({ message: "Se esse e-mail estiver aguardando confirmação, enviamos um novo link." });
 });
 
 // Recuperação de senha de verdade — dispara o e-mail que o Supabase Auth
