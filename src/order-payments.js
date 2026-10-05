@@ -26,7 +26,10 @@ export async function cancelOrderWithRefund(row) {
 
   if (refunded) {
     await supabaseAdmin.from("orders").update({ payment_status: "refunded" }).eq("id", row.id);
-  } else if (row.payment_method !== "entrega" && row.payment_status === "pending") {
+  } else if (
+    row.payment_method !== "entrega" &&
+    (row.payment_status === "pending" || row.payment_provider === "provisorio")
+  ) {
     await supabaseAdmin.from("orders").update({ payment_status: "cancelled" }).eq("id", row.id);
   }
   return { ok: true, refunded };

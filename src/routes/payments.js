@@ -105,6 +105,19 @@ paymentsRouter.post(
     const order = await loadOwnUnpaidOrder(req, res, "cartao");
     if (!order) return;
 
+    // Provisório, até o Mercado Pago ser configurado: o cartão é aprovado na
+    // hora, sem cobrança real (pedido do dono do quiosque). Fica marcado com
+    // payment_provider "provisorio" pra aparecer assim no Admin. Sem
+    // payment_id, cancelar não tenta estorno.
+    if (!paymentsConfigured) {
+      const { error: updError } = await supabaseAdmin
+        .from("orders")
+        .update({ payment_status: "approved", payment_provider: "provisorio" })
+        .eq("id", order.id);
+      if (updError) return res.status(500).json({ error: "Não foi possível registrar o pagamento." });
+      return res.json({ provisional: true, paymentStatus: "approved" });
+    }
+
     const returnUrl = new URL(req.body.returnUrl);
     if (!APP_ORIGINS.includes(returnUrl.origin)) {
       return res.status(400).json({ error: "Endereço de retorno não permitido." });
