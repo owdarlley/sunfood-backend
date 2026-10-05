@@ -17,6 +17,11 @@ const CORS_ORIGINS = (process.env.CORS_ORIGIN || "http://localhost:8000")
   .filter(Boolean);
 
 export const app = express();
+// Na Vercel toda requisição chega por um proxy, que põe o IP real do cliente
+// em X-Forwarded-For. Sem isso, o express-rate-limit enxerga só o IP do proxy
+// e trata todos os clientes como uma pessoa só: 10 logins errados de gente
+// diferente bloqueariam o login de todo mundo.
+app.set("trust proxy", 1);
 app.use(helmet());
 app.use(
   cors({

@@ -32,8 +32,8 @@ O schema do banco (tabelas, RLS, funções) já está provisionado no projeto Su
 | Perfil | E-mail | Senha |
 | --- | --- | --- |
 | Cliente | `ana@email.com` | `praia2026` |
-| Administração | `admin@sunfood.com` | `admin2026` |
-| Cozinha | `cozinha@sunfood.com` | `cozinha2026` |
+| Administração | `admin@sunfood.com` | (não publicada) |
+| Cozinha | `cozinha@sunfood.com` | (não publicada) |
 
 Senhas ficam só como hash dentro do Supabase Auth — o backend nunca vê nem guarda a senha em texto puro.
 

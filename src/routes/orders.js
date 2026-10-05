@@ -78,6 +78,9 @@ ordersRouter.post("/", requireAuth, requireRole("cliente"), createOrderLimiter, 
   if (settings?.paused) {
     return res.status(409).json({ error: "Quiosque pausado no momento — não é possível fechar o pedido." });
   }
+  if (settings?.day_closed) {
+    return res.status(409).json({ error: "O quiosque já encerrou o dia — não é possível fechar o pedido." });
+  }
 
   const { data: table } = await supabaseAdmin
     .from("kiosk_tables")
