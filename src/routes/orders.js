@@ -6,6 +6,8 @@ import { createOrderSchema, orderStatusUpdateSchema, paymentReceivedSchema, vali
 import {
   computeOrderTotals,
   meetsMinimumOrder,
+  minOrderCentsFrom,
+  formatBRL,
   canCancel,
   cancelWindowFrom,
   cancelDeadline,
@@ -108,8 +110,9 @@ ordersRouter.post("/", requireAuth, requireRole("cliente"), createOrderLimiter, 
   // volta pra reais decimais na hora de gravar.
   const priceCentsOf = (item) => Math.round(Number(byId.get(item.productId).price) * 100);
   const { subtotalCents, feeCents, totalCents } = computeOrderTotals(items, priceCentsOf);
-  if (!meetsMinimumOrder(subtotalCents)) {
-    return res.status(422).json({ error: "Pedido mínimo de R$ 10,00 (RN01)." });
+  const minOrderCents = minOrderCentsFrom(settings);
+  if (!meetsMinimumOrder(subtotalCents, minOrderCents)) {
+    return res.status(422).json({ error: `Pedido mínimo de ${formatBRL(minOrderCents)}.` });
   }
 
   const { data: created, error: createError } = await supabaseAdmin.rpc("create_order", {

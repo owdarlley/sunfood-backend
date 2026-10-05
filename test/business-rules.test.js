@@ -6,6 +6,8 @@ import {
   isValidTransition,
   computeOrderTotals,
   meetsMinimumOrder,
+  minOrderCentsFrom,
+  formatBRL,
   canCancel,
   canRecordReceipt,
   cancelWindowFrom,
@@ -20,6 +22,20 @@ test("RN01: pedido abaixo de R$10 é rejeitado", () => {
   assert.equal(meetsMinimumOrder(999), false);
   assert.equal(meetsMinimumOrder(MIN_ORDER_CENTS), true);
   assert.equal(meetsMinimumOrder(MIN_ORDER_CENTS + 1), true);
+});
+
+test("RN01: mínimo configurável pelo admin", () => {
+  assert.equal(meetsMinimumOrder(1499, 1500), false);
+  assert.equal(meetsMinimumOrder(1500, 1500), true);
+  assert.equal(meetsMinimumOrder(1, 0), true); // 0 = sem mínimo
+});
+
+test("minOrderCentsFrom usa o valor do banco e cai no padrão se faltar", () => {
+  assert.equal(minOrderCentsFrom({ min_order_cents: 2500 }), 2500);
+  assert.equal(minOrderCentsFrom({ min_order_cents: 0 }), 0);
+  assert.equal(minOrderCentsFrom({ paused: false }), MIN_ORDER_CENTS);
+  assert.equal(minOrderCentsFrom(null), MIN_ORDER_CENTS);
+  assert.equal(formatBRL(1550), "R$ 15,50");
 });
 
 test("computeOrderTotals soma em centavos sem erro de ponto flutuante", () => {
