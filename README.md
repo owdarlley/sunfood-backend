@@ -1,5 +1,7 @@
 # Sunfood API
 
+> **O Sunfood tem dois repositórios.** Este (`sunfood-backend`) é a **API e o banco**: servidor, Supabase (migrações e modelos de e-mail) e testes do banco. O **site** fica em [`owdarlley/sunfood`](https://github.com/owdarlley/sunfood).
+
 Backend real do Sunfood — Node.js + Express, com **Supabase** (Postgres + Auth) como banco de dados e autenticação, e **Mercado Pago** para pagamento por PIX e cartão. Todas as regras de negócio (pedido mínimo, cancelamento, disponibilidade de item, permissão por papel) são validadas aqui no servidor, nunca só no front-end.
 
 Requer **Node.js 22.5 ou mais recente**.
