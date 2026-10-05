@@ -4,6 +4,7 @@ import {
   loginSchema,
   signupSchema,
   createOrderSchema,
+  kioskCancelWindowSchema,
   orderStatusUpdateSchema,
   productSchema,
 } from "../src/validation/schemas.js";
@@ -94,4 +95,12 @@ test("forma de pagamento do pedido: padrão PIX, só aceita pix/cartao/entrega",
   assert.equal(createOrderSchema.parse(base).paymentMethod, "pix");
   assert.equal(createOrderSchema.parse({ ...base, paymentMethod: "entrega" }).paymentMethod, "entrega");
   assert.equal(createOrderSchema.safeParse({ ...base, paymentMethod: "fiado" }).success, false);
+});
+
+test("prazo de cancelamento aceita minutos inteiros de 0 a 120", () => {
+  assert.equal(kioskCancelWindowSchema.safeParse({ minutes: 0 }).success, true);
+  assert.equal(kioskCancelWindowSchema.safeParse({ minutes: 10 }).success, true);
+  assert.equal(kioskCancelWindowSchema.safeParse({ minutes: 121 }).success, false);
+  assert.equal(kioskCancelWindowSchema.safeParse({ minutes: -1 }).success, false);
+  assert.equal(kioskCancelWindowSchema.safeParse({ minutes: 2.5 }).success, false);
 });

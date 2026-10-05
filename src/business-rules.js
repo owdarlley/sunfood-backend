@@ -31,6 +31,28 @@ export function canCancel(status) {
   return status === "Na Fila";
 }
 
+// Prazo para o cliente cancelar, em minutos contados a partir do pedido. O
+// quiosque escolhe em kiosk_settings.cancel_window_minutes; 0 = sem prazo
+// (vale só a regra do "Na Fila", como era antes).
+export const DEFAULT_CANCEL_WINDOW_MINUTES = 0;
+export const MAX_CANCEL_WINDOW_MINUTES = 120;
+
+export function cancelWindowFrom(settings) {
+  const v = settings?.cancel_window_minutes;
+  return Number.isInteger(v) && v >= 0 ? v : DEFAULT_CANCEL_WINDOW_MINUTES;
+}
+
+// Horário limite pra cancelar (ISO) ou null quando não há prazo.
+export function cancelDeadline(createdAt, windowMinutes) {
+  if (!windowMinutes) return null;
+  return new Date(new Date(createdAt).getTime() + windowMinutes * 60 * 1000).toISOString();
+}
+
+export function withinCancelWindow(createdAt, windowMinutes, now = Date.now()) {
+  const deadline = cancelDeadline(createdAt, windowMinutes);
+  return deadline === null || now <= new Date(deadline).getTime();
+}
+
 // Formas de pagamento: PIX e cartão são pagos no app (Mercado Pago) antes de
 // a cozinha começar; "entrega" é pago ao garçom (maquininha ou dinheiro).
 export const PAYMENT_METHODS = ["pix", "cartao", "entrega"];

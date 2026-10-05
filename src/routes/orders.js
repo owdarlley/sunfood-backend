@@ -7,6 +7,9 @@ import {
   computeOrderTotals,
   meetsMinimumOrder,
   canCancel,
+  cancelWindowFrom,
+  cancelDeadline,
+  withinCancelWindow,
   isValidTransition,
   awaitingOnlinePayment,
   VALID_TRANSITIONS,
@@ -25,7 +28,15 @@ const createOrderLimiter = rateLimit({
   message: { error: "Muitos pedidos em pouco tempo. Aguarde um instante." },
 });
 
-function toApi(row) {
+// Prazo de cancelamento configurado pelo quiosque (0 = sem prazo).
+async function loadCancelWindow() {
+  const { data } = await supabaseAdmin.from("kiosk_settings").select("*").eq("id", 1).maybeSingle();
+  return cancelWindowFrom(data);
+}
+
+// cancelWindow só é passado nas respostas pro cliente: o app usa
+// cancelDeadline pra mostrar até que horas dá pra cancelar.
+function toApi(row, cancelWindow) {
   return {
     id: row.id,
     tableNumber: row.table_number,
@@ -38,6 +49,7 @@ function toApi(row) {
     paymentProvider: row.payment_provider,
     paymentId: row.payment_id,
     paymentStatus: row.payment_status,
+    cancelDeadline: cancelWindow === undefined ? undefined : cancelDeadline(row.created_at, cancelWindow),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     items: (row.order_items || []).map((it) => ({
@@ -122,7 +134,7 @@ ordersRouter.post("/", requireAuth, requireRole("cliente"), createOrderLimiter, 
   }
 
   const { data: row } = await supabaseAdmin.from("orders").select(ORDER_SELECT).eq("id", created.id).single();
-  res.status(201).json(toApi(row));
+  res.status(201).json(toApi(row, cancelWindowFrom(settings)));
 });
 
 // Cliente: histórico dos próprios pedidos.
@@ -160,10 +172,11 @@ ordersRouter.get("/:id", requireAuth, async (req, res) => {
   if (req.user.role === "cliente" && row.customer_id !== req.user.sub) {
     return res.status(403).json({ error: "Sem permissão para ver este pedido." });
   }
-  res.json(toApi(row));
+  res.json(toApi(row, req.user.role === "cliente" ? await loadCancelWindow() : undefined));
 });
 
-// Cliente: cancelar — RN04, só permitido enquanto o status for "Na Fila".
+// Cliente: cancelar — RN04, só permitido enquanto o status for "Na Fila" e
+// dentro do prazo em minutos que o quiosque configurou.
 // Pedido já pago no app é estornado no mesmo meio de pagamento.
 ordersRouter.post("/:id/cancel", requireAuth, requireRole("cliente"), async (req, res) => {
   const { data: row, error } = await supabaseAdmin
@@ -180,12 +193,18 @@ ordersRouter.post("/:id/cancel", requireAuth, requireRole("cliente"), async (req
       error: `Cancelamento bloqueado (RN04): o pedido já está em "${row.status}".`,
     });
   }
+  const cancelWindow = await loadCancelWindow();
+  if (!withinCancelWindow(row.created_at, cancelWindow)) {
+    return res.status(409).json({
+      error: `O prazo para cancelar pelo app (${cancelWindow} min depois do pedido) já passou. Fale com um atendente.`,
+    });
+  }
 
   const result = await cancelOrderWithRefund(row);
   if (!result.ok) return res.status(result.httpStatus).json({ error: result.error });
 
   const { data: updated } = await supabaseAdmin.from("orders").select(ORDER_SELECT).eq("id", row.id).single();
-  res.json(toApi(updated));
+  res.json(toApi(updated, cancelWindow));
 });
 
 // Admin/cozinha: avançar o status no kanban (Na Fila -> Em Preparo -> Pronto -> Entregue).

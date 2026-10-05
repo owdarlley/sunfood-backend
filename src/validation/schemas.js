@@ -89,6 +89,15 @@ export const kioskPauseSchema = z.object({
   paused: z.boolean(),
 });
 
+// Minutos que o cliente tem pra cancelar depois de fazer o pedido; 0 = sem prazo.
+export const kioskCancelWindowSchema = z.object({
+  minutes: z
+    .number()
+    .int("Use um número inteiro de minutos.")
+    .min(0, "Não pode ser negativo.")
+    .max(120, "O máximo é 120 minutos."),
+});
+
 export const orderStatusUpdateSchema = z.object({
   status: z.enum(["Em Preparo", "Pronto", "Entregue", "Cancelado"]),
 });
