@@ -1,7 +1,7 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { supabaseAuth, supabaseAdmin } from "../supabase.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, isProfileComplete } from "../middleware/auth.js";
 import {
   loginSchema,
   signupSchema,
@@ -9,6 +9,7 @@ import {
   resendConfirmationSchema,
   refreshSchema,
   updatePasswordSchema,
+  completeProfileSchema,
   validate,
 } from "../validation/schemas.js";
 
@@ -60,7 +61,7 @@ authRouter.post("/login", loginLimiter, validate(loginSchema), async (req, res) 
 
   const { data: profile } = await supabaseAdmin
     .from("profiles")
-    .select("role, name")
+    .select("role, name, phone, birth_date, terms_accepted_at")
     .eq("id", data.user.id)
     .single();
 
@@ -72,6 +73,7 @@ authRouter.post("/login", loginLimiter, validate(loginSchema), async (req, res) 
       name: profile?.name || "",
       email: data.user.email,
       role: profile?.role || "cliente",
+      profileComplete: isProfileComplete(profile),
     },
   });
 });
@@ -168,7 +170,21 @@ authRouter.post("/update-password", forgotLimiter, validate(updatePasswordSchema
 // access_token direto pro navegador (redirect do Supabase) sem passar pelo
 // nosso /auth/login. O front troca esse token pelos dados do perfil aqui.
 authRouter.get("/me", requireAuth, async (req, res) => {
-  res.json({ user: { id: req.user.sub, name: req.user.name, email: req.user.email, role: req.user.role } });
+  const { sub: id, name, email, role, profileComplete } = req.user;
+  res.json({ user: { id, name, email, role, profileComplete } });
+});
+
+// Quem entrou pelo Google completa aqui o que o formulário de cadastro
+// pediria: telefone, data de nascimento (18+) e aceite dos termos (LGPD).
+authRouter.post("/complete-profile", requireAuth, validate(completeProfileSchema), async (req, res) => {
+  const { name, phone, birthDate } = req.body;
+  const { error } = await supabaseAdmin
+    .from("profiles")
+    .update({ name, phone, birth_date: birthDate, terms_accepted_at: new Date().toISOString() })
+    .eq("id", req.user.sub);
+  if (error) return res.status(500).json({ error: "Não foi possível salvar seu cadastro." });
+  const { sub: id, email, role } = req.user;
+  res.json({ user: { id, name, email, role, profileComplete: true } });
 });
 
 // Exclusão da própria conta (LGPD, direito de eliminação) — a tela já

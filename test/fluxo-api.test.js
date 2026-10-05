@@ -109,7 +109,9 @@ const auth = {
     const id = "u" + (db.profiles.length + 1);
     db.passwords[email] = password;
     db.pending[email] = true;
-    db.profiles.push({ id, email, name: options.data.name, role: "cliente" });
+    // Igual ao trigger handle_new_user do banco.
+    db.profiles.push({ id, email, name: options.data.name, role: "cliente", phone: options.data.phone,
+      birth_date: options.data.birth_date, terms_accepted_at: options.data.terms_accepted_at });
     return { data: { user: { id }, session: null }, error: null };
   },
   async signInWithPassword({ email, password }) {
@@ -191,6 +193,7 @@ test("depois de confirmar, login entra como cliente", async () => {
   const r = await api("POST", "/auth/login", { email: ana.email, password: ana.password });
   assert.equal(r.status, 200);
   assert.equal(r.body.user.role, "cliente");
+  assert.equal(r.body.user.profileComplete, true);
   anaToken = r.body.token;
   const me = await api("GET", "/auth/me", null, anaToken);
   assert.equal(me.body.user.email, ana.email);
@@ -310,6 +313,33 @@ test("quiosque pausado e dia encerrado recusam pedidos", async () => {
   await api("POST", "/reopen-day", null, admin);
   r = await pedir();
   assert.equal(r.status, 201);
+});
+
+test("login com Google: completa telefone, nascimento e termos antes de pedir", async () => {
+  // O Supabase cria a conta direto no retorno do Google; o trigger só tem nome e e-mail.
+  db.profiles.push({ id: "g1", email: "bia@gmail.com", name: "Bia Google", role: "cliente",
+    phone: null, birth_date: null, terms_accepted_at: null });
+  db.users["tok-g1"] = { id: "g1", email: "bia@gmail.com" };
+  let r = await api("GET", "/auth/me", null, "tok-g1");
+  assert.equal(r.body.user.profileComplete, false);
+  r = await api("POST", "/orders", { tableNumber: 1, items: [{ productId: P2, qty: 2 }], paymentMethod: "entrega" }, "tok-g1");
+  assert.equal(r.status, 403);
+  assert.equal(r.body.code, "profile_incomplete");
+  const dados = { name: "Bia Google", phone: "11988887777", birthDate: "2015-01-01", termsAccepted: true };
+  r = await api("POST", "/auth/complete-profile", dados, "tok-g1");
+  assert.equal(r.status, 400, "menor de idade não completa");
+  r = await api("POST", "/auth/complete-profile", { ...dados, birthDate: "1999-05-05", termsAccepted: false }, "tok-g1");
+  assert.equal(r.status, 400, "sem aceitar os termos não completa");
+  r = await api("POST", "/auth/complete-profile", { ...dados, birthDate: "1999-05-05" }, "tok-g1");
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.user.profileComplete, true);
+  assert.ok(db.profiles.find((p) => p.id === "g1").terms_accepted_at);
+  r = await api("GET", "/auth/me", null, "tok-g1");
+  assert.equal(r.body.user.profileComplete, true);
+  r = await api("POST", "/orders", { tableNumber: 1, items: [{ productId: P2, qty: 2 }], paymentMethod: "entrega" }, "tok-g1");
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  r = await api("GET", "/auth/me", null, "tok-admin-1");
+  assert.equal(r.body.user.profileComplete, true, "equipe não precisa completar");
 });
 
 test("excluir conta apaga o acesso e mantém os pedidos sem dono", async () => {
