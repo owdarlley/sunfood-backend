@@ -7,6 +7,13 @@ import {
   computeOrderTotals,
   meetsMinimumOrder,
   canCancel,
+  canRecordReceipt,
+  cancelWindowFrom,
+  cancelDeadline,
+  withinCancelWindow,
+  awaitingOnlinePayment,
+  needsRefund,
+  paymentCoversOrder,
 } from "../src/business-rules.js";
 
 test("RN01: pedido abaixo de R$10 é rejeitado", () => {
@@ -50,4 +57,48 @@ test("transições fora de ordem são rejeitadas (não pode pular etapa nem volt
   assert.equal(isValidTransition("Pronto", "Na Fila"), false);
   assert.equal(isValidTransition("Entregue", "Na Fila"), false);
   assert.equal(isValidTransition("Cancelado", "Na Fila"), false);
+});
+
+test("pedido de PIX/cartão não pago fica fora da cozinha; na entrega entra direto", () => {
+  assert.equal(awaitingOnlinePayment({ payment_method: "pix", payment_status: "pending" }), true);
+  assert.equal(awaitingOnlinePayment({ payment_method: "cartao", payment_status: "rejected" }), true);
+  assert.equal(awaitingOnlinePayment({ payment_method: "pix", payment_status: "approved" }), false);
+  assert.equal(awaitingOnlinePayment({ payment_method: "entrega", payment_status: "pending" }), false);
+});
+
+test("só estorna pedido pago no app com pagamento identificado", () => {
+  assert.equal(needsRefund({ payment_method: "pix", payment_status: "approved", payment_id: "123" }), true);
+  assert.equal(needsRefund({ payment_method: "cartao", payment_status: "approved", payment_id: "456" }), true);
+  assert.equal(needsRefund({ payment_method: "pix", payment_status: "pending", payment_id: "123" }), false);
+  assert.equal(needsRefund({ payment_method: "entrega", payment_status: "approved", payment_id: null }), false);
+});
+
+test("pagamento aprovado precisa cobrir o total do pedido", () => {
+  assert.equal(paymentCoversOrder(27.5, "27.50"), true);
+  assert.equal(paymentCoversOrder(27.49, "27.50"), true); // 1 centavo de arredondamento
+  assert.equal(paymentCoversOrder(20, "27.50"), false);
+});
+
+test("prazo de cancelamento: 0 ou ausente = sem prazo", () => {
+  assert.equal(cancelWindowFrom({ cancel_window_minutes: 0 }), 0);
+  assert.equal(cancelWindowFrom({}), 0);
+  assert.equal(cancelWindowFrom(null), 0);
+  assert.equal(cancelWindowFrom({ cancel_window_minutes: 5 }), 5);
+  assert.equal(cancelDeadline("2026-10-05T12:00:00.000Z", 0), null);
+  assert.equal(withinCancelWindow("2026-10-05T12:00:00.000Z", 0, Date.parse("2026-10-05T20:00:00Z")), true);
+});
+
+test("prazo de cancelamento: só dentro dos minutos configurados", () => {
+  const criado = "2026-10-05T12:00:00.000Z";
+  assert.equal(cancelDeadline(criado, 5), "2026-10-05T12:05:00.000Z");
+  assert.equal(withinCancelWindow(criado, 5, Date.parse("2026-10-05T12:04:59Z")), true);
+  assert.equal(withinCancelWindow(criado, 5, Date.parse("2026-10-05T12:05:00Z")), true);
+  assert.equal(withinCancelWindow(criado, 5, Date.parse("2026-10-05T12:05:01Z")), false);
+});
+
+test("recebimento na entrega: só pedido 'entrega' que não foi cancelado", () => {
+  assert.equal(canRecordReceipt({ payment_method: "entrega", status: "Entregue" }), true);
+  assert.equal(canRecordReceipt({ payment_method: "entrega", status: "Na Fila" }), true);
+  assert.equal(canRecordReceipt({ payment_method: "entrega", status: "Cancelado" }), false);
+  assert.equal(canRecordReceipt({ payment_method: "pix", status: "Entregue" }), false);
 });

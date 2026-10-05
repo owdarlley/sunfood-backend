@@ -58,6 +58,16 @@ export const createOrderSchema = z.object({
   tableNumber: z.number().int().positive(),
   items: z.array(orderItemSchema).min(1, "O carrinho está vazio."),
   note: z.string().trim().max(280).optional().default(""),
+  paymentMethod: z.enum(["pix", "cartao", "entrega"]).optional().default("pix"),
+});
+
+// null desfaz um recebimento marcado por engano.
+export const paymentReceivedSchema = z.object({
+  receivedWith: z.union([z.enum(["dinheiro", "cartao", "pix"]), z.null()]),
+});
+
+export const cardCheckoutSchema = z.object({
+  returnUrl: z.string().url("Endereço de retorno inválido."),
 });
 
 export const productSchema = z.object({
@@ -82,6 +92,15 @@ export const soldOutToggleSchema = z.object({
 
 export const kioskPauseSchema = z.object({
   paused: z.boolean(),
+});
+
+// Minutos que o cliente tem pra cancelar depois de fazer o pedido; 0 = sem prazo.
+export const kioskCancelWindowSchema = z.object({
+  minutes: z
+    .number()
+    .int("Use um número inteiro de minutos.")
+    .min(0, "Não pode ser negativo.")
+    .max(120, "O máximo é 120 minutos."),
 });
 
 export const orderStatusUpdateSchema = z.object({

@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { MercadoPagoConfig, Payment } from "mercadopago";
+import { MercadoPagoConfig, Payment, PaymentRefund, Preference } from "mercadopago";
 
 const ACCESS_TOKEN = process.env.MERCADOPAGO_ACCESS_TOKEN;
 const WEBHOOK_SECRET = process.env.MERCADOPAGO_WEBHOOK_SECRET;
@@ -10,13 +10,34 @@ const WEBHOOK_SECRET = process.env.MERCADOPAGO_WEBHOOK_SECRET;
 // produção: sem token real, nenhum PIX gerado aqui cobra dinheiro de verdade.
 export const paymentsConfigured = !!ACCESS_TOKEN;
 
-let paymentClient = null;
-function client() {
-  if (!paymentClient) {
+let clients = null;
+function mpClients() {
+  if (!clients) {
     const mp = new MercadoPagoConfig({ accessToken: ACCESS_TOKEN });
-    paymentClient = new Payment(mp);
+    clients = { payment: new Payment(mp), refund: new PaymentRefund(mp), preference: new Preference(mp) };
   }
-  return paymentClient;
+  return clients;
+}
+const client = () => mpClients().payment;
+
+// Por quanto tempo uma cobrança online fica aberta. Depois disso o PIX expira
+// no Mercado Pago e o pedido não pago sai da fila (ver orders.js).
+export const PAYMENT_WINDOW_MINUTES = 30;
+
+// O Mercado Pago exige data com milissegundos e fuso explícito
+// (ex.: 2026-10-04T18:30:00.000-03:00) — toISOString() devolve "Z".
+export function mpDate(date) {
+  const brt = new Date(date.getTime() - 3 * 60 * 60 * 1000);
+  return brt.toISOString().replace("Z", "-03:00");
+}
+
+// Traduz o status do Mercado Pago pros valores aceitos em orders.payment_status.
+export function toOrderPaymentStatus(mpStatus) {
+  if (mpStatus === "approved") return "approved";
+  if (mpStatus === "rejected") return "rejected";
+  if (mpStatus === "refunded" || mpStatus === "charged_back") return "refunded";
+  if (mpStatus === "cancelled") return "cancelled";
+  return "pending";
 }
 
 // Cria uma cobrança PIX real pelo valor do pedido. Retorna o código
@@ -41,6 +62,7 @@ export async function createPixPayment({ orderId, amount, payerEmail, notificati
       payer: { email: payerEmail },
       notification_url: notificationUrl,
       external_reference: orderId,
+      date_of_expiration: mpDate(new Date(Date.now() + PAYMENT_WINDOW_MINUTES * 60 * 1000)),
     },
   });
 
@@ -54,6 +76,53 @@ export async function createPixPayment({ orderId, amount, payerEmail, notificati
   };
 }
 
+// Cartão: cria um checkout do Mercado Pago (Checkout Pro) e devolve o link
+// pra onde o cliente é levado. Os dados do cartão são digitados na página do
+// próprio Mercado Pago — nunca passam pelo app nem pelo nosso servidor.
+export async function createCardCheckout({ orderId, amount, payerEmail, notificationUrl, returnUrl, description }) {
+  if (!paymentsConfigured) {
+    return { simulated: true, preferenceId: `sim_${orderId}`, checkoutUrl: null };
+  }
+
+  const now = Date.now();
+  const result = await mpClients().preference.create({
+    body: {
+      items: [
+        {
+          id: orderId,
+          title: description || `Pedido Sunfood #${orderId}`,
+          quantity: 1,
+          unit_price: Number(amount.toFixed(2)),
+          currency_id: "BRL",
+        },
+      ],
+      payer: { email: payerEmail },
+      external_reference: orderId,
+      notification_url: notificationUrl,
+      back_urls: { success: returnUrl, failure: returnUrl, pending: returnUrl },
+      auto_return: "approved",
+      // Só cartão aqui: PIX já tem o fluxo próprio no app, e boleto não
+      // serve pra comida entregue na hora.
+      payment_methods: {
+        excluded_payment_types: [{ id: "ticket" }, { id: "atm" }, { id: "bank_transfer" }],
+        installments: 1,
+      },
+      expires: true,
+      expiration_date_from: mpDate(new Date(now - 60 * 1000)),
+      expiration_date_to: mpDate(new Date(now + PAYMENT_WINDOW_MINUTES * 60 * 1000)),
+    },
+  });
+
+  return { simulated: false, preferenceId: String(result.id), checkoutUrl: result.init_point };
+}
+
+// Devolve o valor total de um pagamento aprovado (cancelamento de pedido pago).
+export async function refundPayment(paymentId) {
+  if (String(paymentId).startsWith("sim_")) return { simulated: true };
+  const result = await mpClients().refund.total({ payment_id: paymentId });
+  return { simulated: false, refundId: String(result.id), status: result.status };
+}
+
 // Nunca confiar no corpo do webhook pra decidir se algo foi pago — ele só
 // diz "olha, o pagamento X mudou", e o status de verdade é buscado de volta
 // na API do Mercado Pago com nosso próprio access token.
@@ -62,7 +131,12 @@ export async function fetchPaymentStatus(paymentId) {
     return { status: "pending", externalReference: paymentId.replace("sim_", "") };
   }
   const result = await client().get({ id: paymentId });
-  return { status: result.status, externalReference: result.external_reference };
+  return {
+    status: result.status,
+    externalReference: result.external_reference,
+    amount: Number(result.transaction_amount),
+    methodType: result.payment_type_id, // 'bank_transfer' (PIX), 'credit_card', 'debit_card'...
+  };
 }
 
 // Valida a assinatura HMAC do webhook (cabeçalhos x-signature/x-request-id),

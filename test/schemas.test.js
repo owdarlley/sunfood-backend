@@ -4,6 +4,8 @@ import {
   loginSchema,
   signupSchema,
   createOrderSchema,
+  paymentReceivedSchema,
+  kioskCancelWindowSchema,
   orderStatusUpdateSchema,
   productSchema,
 } from "../src/validation/schemas.js";
@@ -87,4 +89,25 @@ test("productSchema: estoque ausente não vira null (não sobrescreve o saldo na
   assert.equal(productSchema.parse({ ...base, stockQty: 5 }).stockQty, 5);
   assert.equal(productSchema.safeParse({ ...base, stockQty: -1 }).success, false);
   assert.equal(productSchema.safeParse({ ...base, stockQty: 1.5 }).success, false);
+});
+
+test("forma de pagamento do pedido: padrão PIX, só aceita pix/cartao/entrega", () => {
+  const base = { tableNumber: 3, items: [{ productId: "3f1c6a52-6b1e-4b8e-9d0a-0c6c4a1b2d3e", qty: 1 }] };
+  assert.equal(createOrderSchema.parse(base).paymentMethod, "pix");
+  assert.equal(createOrderSchema.parse({ ...base, paymentMethod: "entrega" }).paymentMethod, "entrega");
+  assert.equal(createOrderSchema.safeParse({ ...base, paymentMethod: "fiado" }).success, false);
+});
+
+test("prazo de cancelamento aceita minutos inteiros de 0 a 120", () => {
+  assert.equal(kioskCancelWindowSchema.safeParse({ minutes: 0 }).success, true);
+  assert.equal(kioskCancelWindowSchema.safeParse({ minutes: 10 }).success, true);
+  assert.equal(kioskCancelWindowSchema.safeParse({ minutes: 121 }).success, false);
+  assert.equal(kioskCancelWindowSchema.safeParse({ minutes: -1 }).success, false);
+  assert.equal(kioskCancelWindowSchema.safeParse({ minutes: 2.5 }).success, false);
+});
+
+test("recebimento aceita dinheiro, cartao, pix ou null (desfazer)", () => {
+  for (const v of ["dinheiro", "cartao", "pix", null]) assert.equal(paymentReceivedSchema.safeParse({ receivedWith: v }).success, true);
+  assert.equal(paymentReceivedSchema.safeParse({ receivedWith: "cheque" }).success, false);
+  assert.equal(paymentReceivedSchema.safeParse({}).success, false);
 });

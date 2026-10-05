@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 
 process.env.MERCADOPAGO_WEBHOOK_SECRET = "segredo-de-teste";
-const { verifyWebhookSignature } = await import("../src/payments/mercadopago.js");
+const { verifyWebhookSignature, toOrderPaymentStatus, mpDate } = await import("../src/payments/mercadopago.js");
 
 function sign(dataId, requestId, ts, secret) {
   const manifest = `id:${dataId};request-id:${requestId};ts:${ts};`;
@@ -35,4 +35,17 @@ test("rejeita quando o dataId foi trocado (payload adulterado)", () => {
 test("rejeita cabeçalho de assinatura ausente ou malformado", () => {
   assert.equal(verifyWebhookSignature({ signatureHeader: undefined, requestId: "r", dataId: "1" }), false);
   assert.equal(verifyWebhookSignature({ signatureHeader: "lixo-sem-formato", requestId: "r", dataId: "1" }), false);
+});
+
+test("traduz os status do Mercado Pago pros status do pedido", () => {
+  assert.equal(toOrderPaymentStatus("approved"), "approved");
+  assert.equal(toOrderPaymentStatus("rejected"), "rejected");
+  assert.equal(toOrderPaymentStatus("refunded"), "refunded");
+  assert.equal(toOrderPaymentStatus("charged_back"), "refunded");
+  assert.equal(toOrderPaymentStatus("cancelled"), "cancelled");
+  assert.equal(toOrderPaymentStatus("in_process"), "pending");
+});
+
+test("data no formato que o Mercado Pago aceita (com milissegundos e fuso -03:00)", () => {
+  assert.equal(mpDate(new Date("2026-10-04T21:30:00.000Z")), "2026-10-04T18:30:00.000-03:00");
 });
