@@ -60,6 +60,19 @@ async function loadOwnUnpaidOrder(req, res, method) {
   return order;
 }
 
+// Provisório, até o Mercado Pago ser configurado: PIX e cartão são aprovados
+// na hora, sem cobrança real (pedido do dono do quiosque). Ficam marcados com
+// payment_provider "provisorio" pra aparecer assim no Admin. Sem payment_id,
+// cancelar não tenta estorno.
+async function approveProvisionally(order, res) {
+  const { error } = await supabaseAdmin
+    .from("orders")
+    .update({ payment_status: "approved", payment_provider: "provisorio" })
+    .eq("id", order.id);
+  if (error) return res.status(500).json({ error: "Não foi possível registrar o pagamento." });
+  res.json({ provisional: true, paymentStatus: "approved" });
+}
+
 const webhookUrl = (req) =>
   `${process.env.PUBLIC_API_BASE_URL || `${req.protocol}://${req.get("host")}`}/payments/mercadopago/webhook`;
 
@@ -67,6 +80,7 @@ const webhookUrl = (req) =>
 paymentsRouter.post("/pix/:orderId", requireAuth, requireRole("cliente"), pixLimiter, async (req, res) => {
   const order = await loadOwnUnpaidOrder(req, res, "pix");
   if (!order) return;
+  if (!paymentsConfigured) return approveProvisionally(order, res);
 
   try {
     const payment = await createPixPayment({
@@ -105,18 +119,7 @@ paymentsRouter.post(
     const order = await loadOwnUnpaidOrder(req, res, "cartao");
     if (!order) return;
 
-    // Provisório, até o Mercado Pago ser configurado: o cartão é aprovado na
-    // hora, sem cobrança real (pedido do dono do quiosque). Fica marcado com
-    // payment_provider "provisorio" pra aparecer assim no Admin. Sem
-    // payment_id, cancelar não tenta estorno.
-    if (!paymentsConfigured) {
-      const { error: updError } = await supabaseAdmin
-        .from("orders")
-        .update({ payment_status: "approved", payment_provider: "provisorio" })
-        .eq("id", order.id);
-      if (updError) return res.status(500).json({ error: "Não foi possível registrar o pagamento." });
-      return res.json({ provisional: true, paymentStatus: "approved" });
-    }
+    if (!paymentsConfigured) return approveProvisionally(order, res);
 
     const returnUrl = new URL(req.body.returnUrl);
     if (!APP_ORIGINS.includes(returnUrl.origin)) {
