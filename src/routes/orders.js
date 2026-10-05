@@ -1,7 +1,7 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { supabaseAdmin } from "../supabase.js";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { requireAuth, requireRole, requireCompleteProfile } from "../middleware/auth.js";
 import { createOrderSchema, orderStatusUpdateSchema, paymentReceivedSchema, validate } from "../validation/schemas.js";
 import {
   computeOrderTotals,
@@ -71,7 +71,7 @@ const ORDER_SELECT = "*, order_items(*)";
 
 // Cliente: cria um pedido. Todas as regras de negócio são checadas aqui,
 // no servidor — o front pode ser enganado, o backend não.
-ordersRouter.post("/", requireAuth, requireRole("cliente"), createOrderLimiter, validate(createOrderSchema), async (req, res) => {
+ordersRouter.post("/", requireAuth, requireRole("cliente"), requireCompleteProfile, createOrderLimiter, validate(createOrderSchema), async (req, res) => {
   const { tableNumber, items, note, paymentMethod } = req.body;
 
   const { data: settings } = await supabaseAdmin.from("kiosk_settings").select("*").eq("id", 1).single();
