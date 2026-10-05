@@ -96,6 +96,14 @@ const rpc = async (name, args) => {
     db.kiosk_settings[0].day_closed = true;
     return { data: { id: "r1", totalOrders: db.orders.length }, error: null };
   }
+  if (name === "sales_report") {
+    db.lastReportDays = args.p_days;
+    // O Postgres devolve numeric como texto no JSON; a rota converte.
+    return { data: { from: "2026-10-05", to: "2026-10-05", revenue: "80.00", orders: 2, avgTicket: "40.00", itemsSold: "7",
+      topProducts: [{ name: "Água de Coco", qty: "6", revenue: "60.00" }],
+      byHour: Array.from({ length: 24 }, (_, hour) => ({ hour, orders: hour === 12 ? 2 : 0, revenue: hour === 12 ? "80.00" : 0 })),
+      byDay: [{ date: "2026-10-05", orders: 2, revenue: "80.00" }] }, error: null };
+  }
   return { data: {}, error: null };
 };
 
@@ -370,6 +378,28 @@ test("conta antiga sem CPF precisa completar antes de pedir", async () => {
   r = await api("POST", "/orders", { tableNumber: 1, items: [{ productId: P2, qty: 2 }], paymentMethod: "entrega" }, "tok-v1");
   assert.equal(r.status, 403);
   assert.match(r.body.error, /CPF/);
+});
+
+test("relatórios do admin: período, números e só admin vê", async () => {
+  const admin = staff("admin");
+  const cozinha = staff("cozinha");
+  assert.equal((await api("GET", "/reports/sales")).status, 401);
+  assert.equal((await api("GET", "/reports/sales", null, cozinha)).status, 403);
+  assert.equal((await api("GET", "/reports/sales?period=1ano", null, admin)).status, 400);
+
+  const hoje = await api("GET", "/reports/sales", null, admin);
+  assert.equal(hoje.status, 200);
+  assert.equal(db.lastReportDays, 1, "sem período = hoje");
+  assert.equal(hoje.body.revenue, 80);
+  assert.equal(hoje.body.topProducts[0].qty, 6);
+  assert.equal(hoje.body.byHour.length, 24);
+  assert.equal(hoje.body.byHour[12].revenue, 80);
+
+  await api("GET", "/reports/sales?period=7d", null, admin);
+  assert.equal(db.lastReportDays, 7);
+  const r30 = await api("GET", "/reports/sales?period=30d", null, admin);
+  assert.equal(db.lastReportDays, 30);
+  assert.equal(r30.body.period, "30d");
 });
 
 test("excluir conta apaga o acesso e mantém os pedidos sem dono", async () => {

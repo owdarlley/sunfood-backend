@@ -2,7 +2,14 @@ import { Router } from "express";
 import { supabaseAdmin } from "../supabase.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { cancelWindowFrom, minOrderCentsFrom } from "../business-rules.js";
-import { kioskPauseSchema, kioskCancelWindowSchema, kioskMinOrderSchema, validate } from "../validation/schemas.js";
+import {
+  kioskPauseSchema,
+  kioskCancelWindowSchema,
+  kioskMinOrderSchema,
+  salesReportQuerySchema,
+  REPORT_PERIODS,
+  validate,
+} from "../validation/schemas.js";
 
 export const adminRouter = Router();
 
@@ -86,6 +93,33 @@ adminRouter.get("/dashboard", requireAuth, requireRole("admin"), async (req, res
     salesByHour: data.salesByHour,
   });
 });
+
+// Relatórios: vendas, mais vendidos e horários de pico no período escolhido
+// (hoje, 7 ou 30 dias). Só conta pedido pago ou "pagar na entrega", sem
+// cancelados nem estornados — a conta toda é feita no banco (sales_report).
+adminRouter.get(
+  "/reports/sales",
+  requireAuth,
+  requireRole("admin"),
+  validate(salesReportQuerySchema, "query"),
+  async (req, res) => {
+    const period = req.query.period || "hoje";
+    const { data, error } = await supabaseAdmin.rpc("sales_report", { p_days: REPORT_PERIODS[period] });
+    if (error) return res.status(500).json({ error: "Erro ao gerar o relatório." });
+    res.json({
+      period,
+      from: data.from,
+      to: data.to,
+      revenue: Number(data.revenue),
+      orders: data.orders,
+      avgTicket: Number(data.avgTicket),
+      itemsSold: Number(data.itemsSold),
+      topProducts: data.topProducts.map((p) => ({ name: p.name, qty: Number(p.qty), revenue: Number(p.revenue) })),
+      byHour: data.byHour.map((h) => ({ hour: h.hour, orders: h.orders, revenue: Number(h.revenue) })),
+      byDay: data.byDay.map((d) => ({ date: d.date, orders: d.orders, revenue: Number(d.revenue) })),
+    });
+  }
+);
 
 // Métricas de operação: calculadas de verdade a partir do histórico de status
 // (order_status_log), não valores fixos como no protótipo original.
