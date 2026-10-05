@@ -61,6 +61,11 @@ export const createOrderSchema = z.object({
   paymentMethod: z.enum(["pix", "cartao", "entrega"]).optional().default("pix"),
 });
 
+// null desfaz um recebimento marcado por engano.
+export const paymentReceivedSchema = z.object({
+  receivedWith: z.union([z.enum(["dinheiro", "cartao", "pix"]), z.null()]),
+});
+
 export const cardCheckoutSchema = z.object({
   returnUrl: z.string().url("Endereço de retorno inválido."),
 });

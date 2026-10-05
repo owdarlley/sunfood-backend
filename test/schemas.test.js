@@ -4,6 +4,7 @@ import {
   loginSchema,
   signupSchema,
   createOrderSchema,
+  paymentReceivedSchema,
   kioskCancelWindowSchema,
   orderStatusUpdateSchema,
   productSchema,
@@ -103,4 +104,10 @@ test("prazo de cancelamento aceita minutos inteiros de 0 a 120", () => {
   assert.equal(kioskCancelWindowSchema.safeParse({ minutes: 121 }).success, false);
   assert.equal(kioskCancelWindowSchema.safeParse({ minutes: -1 }).success, false);
   assert.equal(kioskCancelWindowSchema.safeParse({ minutes: 2.5 }).success, false);
+});
+
+test("recebimento aceita dinheiro, cartao, pix ou null (desfazer)", () => {
+  for (const v of ["dinheiro", "cartao", "pix", null]) assert.equal(paymentReceivedSchema.safeParse({ receivedWith: v }).success, true);
+  assert.equal(paymentReceivedSchema.safeParse({ receivedWith: "cheque" }).success, false);
+  assert.equal(paymentReceivedSchema.safeParse({}).success, false);
 });

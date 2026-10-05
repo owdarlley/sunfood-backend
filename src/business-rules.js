@@ -63,6 +63,14 @@ export function awaitingOnlinePayment(order) {
   return order.payment_method !== "entrega" && order.payment_status !== "approved";
 }
 
+// Como o garçom recebeu um pedido "pagar na entrega" (registrado pelo admin).
+export const RECEIVED_WITH = ["dinheiro", "cartao", "pix"];
+
+// Só pedido "na entrega" e ainda não cancelado pode ter o recebimento anotado.
+export function canRecordReceipt(order) {
+  return order.payment_method === "entrega" && order.status !== "Cancelado";
+}
+
 // Cancelar um pedido já pago no app exige devolver o dinheiro.
 export function needsRefund(order) {
   return order.payment_method !== "entrega" && order.payment_status === "approved" && !!order.payment_id;

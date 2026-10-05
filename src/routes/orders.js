@@ -2,7 +2,7 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { supabaseAdmin } from "../supabase.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
-import { createOrderSchema, orderStatusUpdateSchema, validate } from "../validation/schemas.js";
+import { createOrderSchema, orderStatusUpdateSchema, paymentReceivedSchema, validate } from "../validation/schemas.js";
 import {
   computeOrderTotals,
   meetsMinimumOrder,
@@ -12,6 +12,7 @@ import {
   withinCancelWindow,
   isValidTransition,
   awaitingOnlinePayment,
+  canRecordReceipt,
   VALID_TRANSITIONS,
 } from "../business-rules.js";
 import { cancelOrderWithRefund, expireUnpaidOrders } from "../order-payments.js";
@@ -49,6 +50,8 @@ function toApi(row, cancelWindow) {
     paymentProvider: row.payment_provider,
     paymentId: row.payment_id,
     paymentStatus: row.payment_status,
+    receivedWith: row.received_with,
+    receivedAt: row.received_at,
     cancelDeadline: cancelWindow === undefined ? undefined : cancelDeadline(row.created_at, cancelWindow),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -206,6 +209,35 @@ ordersRouter.post("/:id/cancel", requireAuth, requireRole("cliente"), async (req
   const { data: updated } = await supabaseAdmin.from("orders").select(ORDER_SELECT).eq("id", row.id).single();
   res.json(toApi(updated, cancelWindow));
 });
+
+// Admin: anota que o garçom recebeu um pedido "pagar na entrega" (dinheiro,
+// cartão na maquininha ou PIX do quiosque), ou desfaz com receivedWith null.
+// É o que deixa a tela de Pagamentos do admin com todas as transações.
+ordersRouter.patch(
+  "/:id/payment-received",
+  requireAuth,
+  requireRole("admin"),
+  validate(paymentReceivedSchema),
+  async (req, res) => {
+    const { data: row, error } = await supabaseAdmin.from("orders").select("*").eq("id", req.params.id).maybeSingle();
+    if (error || !row) return res.status(404).json({ error: "Pedido não encontrado." });
+    if (!canRecordReceipt(row)) {
+      return res.status(409).json({ error: "Só dá para anotar recebimento de pedido \"pagar na entrega\" que não foi cancelado." });
+    }
+    const { receivedWith } = req.body;
+    const { error: updError } = await supabaseAdmin
+      .from("orders")
+      .update(
+        receivedWith
+          ? { payment_status: "approved", received_with: receivedWith, received_at: new Date().toISOString() }
+          : { payment_status: "pending", received_with: null, received_at: null }
+      )
+      .eq("id", row.id);
+    if (updError) return res.status(500).json({ error: "Não foi possível salvar o recebimento." });
+    const { data: updated } = await supabaseAdmin.from("orders").select(ORDER_SELECT).eq("id", row.id).single();
+    res.json(toApi(updated));
+  }
+);
 
 // Admin/cozinha: avançar o status no kanban (Na Fila -> Em Preparo -> Pronto -> Entregue).
 ordersRouter.patch(

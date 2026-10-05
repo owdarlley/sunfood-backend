@@ -7,6 +7,7 @@ import {
   computeOrderTotals,
   meetsMinimumOrder,
   canCancel,
+  canRecordReceipt,
   cancelWindowFrom,
   cancelDeadline,
   withinCancelWindow,
@@ -93,4 +94,11 @@ test("prazo de cancelamento: só dentro dos minutos configurados", () => {
   assert.equal(withinCancelWindow(criado, 5, Date.parse("2026-10-05T12:04:59Z")), true);
   assert.equal(withinCancelWindow(criado, 5, Date.parse("2026-10-05T12:05:00Z")), true);
   assert.equal(withinCancelWindow(criado, 5, Date.parse("2026-10-05T12:05:01Z")), false);
+});
+
+test("recebimento na entrega: só pedido 'entrega' que não foi cancelado", () => {
+  assert.equal(canRecordReceipt({ payment_method: "entrega", status: "Entregue" }), true);
+  assert.equal(canRecordReceipt({ payment_method: "entrega", status: "Na Fila" }), true);
+  assert.equal(canRecordReceipt({ payment_method: "entrega", status: "Cancelado" }), false);
+  assert.equal(canRecordReceipt({ payment_method: "pix", status: "Entregue" }), false);
 });
