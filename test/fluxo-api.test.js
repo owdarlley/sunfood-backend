@@ -19,6 +19,7 @@ const db = {
   orders: [],
   order_items: [],
   day_reports: [],
+  contact_messages: [],
   pending: {}, // e-mails cadastrados que ainda não confirmaram
   passwords: {},
   resent: [],
@@ -400,6 +401,32 @@ test("relatórios do admin: período, números e só admin vê", async () => {
   const r30 = await api("GET", "/reports/sales?period=30d", null, admin);
   assert.equal(db.lastReportDays, 30);
   assert.equal(r30.body.period, "30d");
+});
+
+test("fale conosco grava a mensagem e só o admin lê e marca como respondida", async () => {
+  const ok = { name: "Bruna Lima", contact: "(13) 98888-7777", reason: "Reservar mesa ou guarda-sol", message: "Quero reservar uma mesa para 6 no sábado." };
+  const r = await api("POST", "/contact", ok);
+  assert.equal(r.status, 201);
+  assert.match(r.body.protocol, /^SF-\d{6}$/);
+  assert.equal(db.contact_messages.length, 1);
+
+  assert.equal((await api("POST", "/contact", { ...ok, contact: "abc" })).status, 400);
+  assert.equal((await api("POST", "/contact", { ...ok, message: "curta" })).status, 400);
+  assert.equal((await api("POST", "/contact", { ...ok, reason: "Outro" })).status, 400);
+
+  const admin = staff("admin");
+  assert.equal((await api("GET", "/contact")).status, 401);
+  assert.equal((await api("GET", "/contact", null, staff("cozinha"))).status, 403);
+  const lista = await api("GET", "/contact", null, admin);
+  assert.equal(lista.status, 200);
+  assert.equal(lista.body[0].protocol, r.body.protocol);
+  assert.equal(lista.body[0].name, "Bruna Lima");
+
+  const id = lista.body[0].id;
+  const upd = await api("PATCH", "/contact/" + id + "/status", { status: "respondido" }, admin);
+  assert.equal(upd.status, 200);
+  assert.equal(upd.body.status, "respondido");
+  assert.equal((await api("PATCH", "/contact/" + id + "/status", { status: "lido" }, admin)).status, 400);
 });
 
 test("excluir conta apaga o acesso e mantém os pedidos sem dono", async () => {

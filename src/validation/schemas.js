@@ -145,6 +145,31 @@ export const salesReportQuerySchema = z.object({
   period: z.enum(Object.keys(REPORT_PERIODS), { message: "Período inválido. Use hoje, 7d ou 30d." }).default("hoje"),
 });
 
+// "Fale conosco" do site: o contato pode ser e-mail ou telefone.
+export const CONTACT_REASONS = [
+  "Reservar mesa ou guarda-sol",
+  "Tirar dúvida sobre o cardápio",
+  "Dúvida sobre pagamento ou divisão de conta",
+  "Suporte com um pedido em andamento",
+  "Parceria com meu quiosque",
+];
+export const contactMessageSchema = z.object({
+  name: nameField,
+  contact: z
+    .string()
+    .trim()
+    .max(160)
+    .refine(
+      (v) => /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(v) || v.replace(/\D/g, "").length >= 10,
+      "Informe um e-mail ou telefone com DDD."
+    ),
+  reason: z.enum(CONTACT_REASONS, { message: "Escolha um dos motivos da lista." }),
+  message: z.string().trim().min(10, "Escreva ao menos 10 caracteres.").max(2000, "Mensagem muito longa."),
+});
+export const contactStatusSchema = z.object({
+  status: z.enum(["novo", "respondido"]),
+});
+
 export function validate(schema, source = "body") {
   return (req, res, next) => {
     const result = schema.safeParse(req[source]);
