@@ -131,31 +131,6 @@ paymentsRouter.post(
   }
 );
 
-// Modo de teste (sem conta no Mercado Pago configurada): o cliente aprova o
-// próprio pagamento com um botão, sem dinheiro de verdade. Assim que
-// MERCADOPAGO_ACCESS_TOKEN for configurado, esta rota passa a recusar tudo e
-// só o webhook do Mercado Pago aprova pagamentos.
-async function simulateApproval(req, res, method) {
-  if (paymentsConfigured) {
-    return res.status(403).json({ error: "Pagamento simulado desativado: o Mercado Pago está configurado." });
-  }
-  const order = await loadOwnUnpaidOrder(req, res, method);
-  if (!order) return;
-  const { error } = await supabaseAdmin
-    .from("orders")
-    .update({ payment_status: "approved", payment_provider: "simulado", payment_id: `sim_${order.id}` })
-    .eq("id", order.id);
-  if (error) return res.status(500).json({ error: "Não foi possível simular o pagamento." });
-  res.json({ paymentStatus: "approved", simulated: true });
-}
-
-paymentsRouter.post("/pix/:orderId/simulate-approve", requireAuth, requireRole("cliente"), (req, res) =>
-  simulateApproval(req, res, "pix")
-);
-paymentsRouter.post("/card/:orderId/simulate-approve", requireAuth, requireRole("cliente"), (req, res) =>
-  simulateApproval(req, res, "cartao")
-);
-
 // Cliente: consulta o status de pagamento do próprio pedido — usado pro app
 // dar polling além de depender só do webhook (rede de segurança).
 paymentsRouter.get("/pix/:orderId/status", requireAuth, requireRole("cliente"), async (req, res) => {
