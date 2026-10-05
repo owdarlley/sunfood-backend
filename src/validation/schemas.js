@@ -139,6 +139,12 @@ export const orderStatusUpdateSchema = z.object({
   status: z.enum(["Em Preparo", "Pronto", "Entregue", "Cancelado"]),
 });
 
+// Relatórios do admin: período em dias (hoje, últimos 7 ou últimos 30 dias).
+export const REPORT_PERIODS = { hoje: 1, "7d": 7, "30d": 30 };
+export const salesReportQuerySchema = z.object({
+  period: z.enum(Object.keys(REPORT_PERIODS), { message: "Período inválido. Use hoje, 7d ou 30d." }).default("hoje"),
+});
+
 export function validate(schema, source = "body") {
   return (req, res, next) => {
     const result = schema.safeParse(req[source]);

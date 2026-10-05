@@ -34,7 +34,7 @@ npm test    # roda os testes (ver abaixo)
 | Onde | O que testa | Como rodar |
 | --- | --- | --- |
 | `test/*.test.js` | Regras de negócio, permissões por papel, validação, assinatura do webhook e o fluxo completo da API (cadastro → pedido → entregue → excluir conta) com um Supabase falso em memória | `npm test` (roda sozinho no GitHub a cada push) |
-| `test/banco/*.sql` | As funções do banco de verdade: CPF do cadastro, estoque, status do pedido, formas de pagamento, prazo de cancelamento, pedido mínimo, painel e encerrar o dia | Colar no SQL Editor do Supabase |
+| `test/banco/*.sql` | As funções do banco de verdade: CPF do cadastro, estoque, status do pedido, formas de pagamento, prazo de cancelamento, pedido mínimo, painel, encerrar o dia e relatórios | Colar no SQL Editor do Supabase |
 
 Os `.sql` terminam com um erro **de propósito**: o Postgres desfaz tudo o que fizeram, então nada fica gravado. Passou = a mensagem começa com `TESTE_..._PASSOU`; qualquer `FALHA ...` é um bug.
 
@@ -91,6 +91,7 @@ Senhas ficam só como hash dentro do Supabase Auth — o backend nunca vê nem g
 | PATCH | `/kiosk-settings/min-order` | admin | Mudar o pedido mínimo |
 | PATCH | `/kiosk-settings/cancel-window` | admin | Mudar o prazo de cancelamento (0 a 120 min) |
 | GET | `/dashboard` | admin | Vendas do dia, por horário e mais vendidos |
+| GET | `/reports/sales?period=hoje\|7d\|30d` | admin | Relatórios: vendas, mais vendidos e horários de pico no período (só pedidos pagos ou na entrega, sem cancelados/estornados) |
 | GET | `/ops-metrics` | admin | Tempo médio de fila/preparo, atrasos, cancelamentos, itens esgotados |
 | GET | `/day-reports/latest` | admin | Último relatório de fechamento do dia |
 | POST | `/close-day` | admin | Encerra o dia e grava o relatório |
@@ -98,13 +99,13 @@ Senhas ficam só como hash dentro do Supabase Auth — o backend nunca vê nem g
 
 ## Modelo de dados (Supabase Postgres)
 
-`profiles` (papel do usuário, ligado a `auth.users`), `products`, `kiosk_tables`, `orders` + `order_items` + `order_status_log`, `kiosk_settings`, `day_reports`. Ver as migrações aplicadas no projeto Supabase para o schema completo, incluindo as funções `create_order`, `set_order_status`, `dashboard_stats`, `ops_metrics` e `close_day`, que gravam/agregam atomicamente e só são executáveis pelo `service_role` (nunca direto por um cliente autenticado).
+`profiles` (papel do usuário, ligado a `auth.users`), `products`, `kiosk_tables`, `orders` + `order_items` + `order_status_log`, `kiosk_settings`, `day_reports`. Ver as migrações aplicadas no projeto Supabase para o schema completo, incluindo as funções `create_order`, `set_order_status`, `dashboard_stats`, `ops_metrics`, `sales_report` e `close_day`, que gravam/agregam atomicamente e só são executáveis pelo `service_role` (nunca direto por um cliente autenticado).
 
 ## Segurança
 
 - **Supabase Auth** cuida de senha (hash), sessão (access + refresh token), confirmação de e-mail e recuperação de senha — nada disso é reinventado aqui.
 - **Row Level Security** habilitada em toda tabela; a service role (usada só pelo backend) ignora RLS de propósito porque é este servidor que valida as regras de negócio antes de gravar — por isso as policies de escrita direta em `orders`/`order_items` foram removidas: um cliente com o próprio token não consegue criar ou alterar pedido pulando o Express.
-- Funções do banco que gravam dados (`create_order`, `set_order_status`, `dashboard_stats`, `ops_metrics`, `close_day`) são executáveis **só pelo `service_role`** — nem `anon` nem `authenticated` conseguem chamá-las direto pela API REST do Supabase.
+- Funções do banco que gravam dados (`create_order`, `set_order_status`, `dashboard_stats`, `ops_metrics`, `sales_report`, `close_day`) são executáveis **só pelo `service_role`** — nem `anon` nem `authenticated` conseguem chamá-las direto pela API REST do Supabase.
 - Trigger no banco impede um usuário de trocar o próprio `role` direto pela API (proteção contra auto-escalação de privilégio).
 - Validação de entrada com **zod** em todo endpoint que recebe body.
 - **express-rate-limit** em login, cadastro, recuperação de senha, criação de pedido e geração de PIX.
