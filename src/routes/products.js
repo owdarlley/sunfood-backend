@@ -85,6 +85,7 @@ productsRouter.get("/", async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from("products")
     .select("*")
+    .is("archived_at", null)
     .order("category")
     .order("name");
   if (error) return res.status(500).json({ error: "Erro ao carregar cardápio." });
@@ -128,10 +129,32 @@ productsRouter.put("/:id", requireAuth, requireRole("admin"), validate(productSc
     .from("products")
     .update(fromApi(req.body))
     .eq("id", req.params.id)
+    .is("archived_at", null)
     .select()
     .single();
   if (error || !data) return res.status(404).json({ error: "Produto não encontrado." });
   res.json(toApi(data));
+});
+
+// Admin: excluir item do cardápio. Sem pedidos = apaga de vez (e a foto);
+// com pedidos = arquiva, pra não estragar o histórico nem os relatórios.
+productsRouter.delete("/:id", requireAuth, requireRole("admin"), async (req, res) => {
+  const { data, error } = await supabaseAdmin.rpc("delete_or_archive_product", { p_id: req.params.id });
+  if (error) {
+    // id que não é UUID também cai aqui (o Postgres recusa o tipo).
+    if (/product_not_found|invalid input syntax/.test(error.message || ""))
+      return res.status(404).json({ error: "Produto não encontrado." });
+    return res.status(500).json({ error: "Não foi possível excluir o produto." });
+  }
+  // A foto só sai do Storage quando o produto foi apagado de verdade. Se falhar,
+  // o produto já sumiu; sobra só um arquivo solto, então não vira erro.
+  if (data.action === "deleted" && data.imageUrl?.startsWith(publicImagePrefix())) {
+    await supabaseAdmin.storage
+      .from(PRODUCT_IMAGES_BUCKET)
+      .remove([data.imageUrl.slice(publicImagePrefix().length)])
+      .catch(() => {});
+  }
+  res.json({ action: data.action });
 });
 
 // Cozinha (ou admin): sinalizar item indisponível / disponível de novo.
@@ -145,6 +168,7 @@ productsRouter.patch(
       .from("products")
       .update({ sold_out: req.body.soldOut })
       .eq("id", req.params.id)
+      .is("archived_at", null)
       .select()
       .single();
     if (error || !data) return res.status(404).json({ error: "Produto não encontrado." });
