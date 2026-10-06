@@ -1,12 +1,13 @@
 import { Router } from "express";
 import { supabaseAdmin } from "../supabase.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
-import { cancelWindowFrom, minOrderCentsFrom, tableCountFrom } from "../business-rules.js";
+import { cancelWindowFrom, locationFrom, minOrderCentsFrom, tableCountFrom } from "../business-rules.js";
 import {
   kioskPauseSchema,
   kioskCancelWindowSchema,
   kioskMinOrderSchema,
   kioskTableCountSchema,
+  kioskLocationSchema,
   salesReportQuerySchema,
   REPORT_PERIODS,
   validate,
@@ -21,6 +22,7 @@ function kioskToApi(row) {
     cancelWindowMinutes: cancelWindowFrom(row),
     minOrder: minOrderCentsFrom(row) / 100,
     tableCount: tableCountFrom(row),
+    location: locationFrom(row),
   };
 }
 
@@ -94,6 +96,26 @@ adminRouter.patch(
     if (rpcError) return res.status(500).json({ error: "Não foi possível salvar a quantidade de mesas." });
     const { data, error } = await supabaseAdmin.from("kiosk_settings").select("*").eq("id", 1).single();
     if (error) return res.status(500).json({ error: "Não foi possível salvar a quantidade de mesas." });
+    res.json(kioskToApi(data));
+  }
+);
+
+// Admin: onde fica o quiosque. O app do cliente monta o mapa e o botão
+// "Abrir no mapa" a partir do endereço.
+adminRouter.patch(
+  "/kiosk-settings/location",
+  requireAuth,
+  requireRole("admin"),
+  validate(kioskLocationSchema),
+  async (req, res) => {
+    const { name, address, hours } = req.body;
+    const { data, error } = await supabaseAdmin
+      .from("kiosk_settings")
+      .update({ location_name: name, location_address: address, location_hours: hours })
+      .eq("id", 1)
+      .select()
+      .single();
+    if (error) return res.status(500).json({ error: "Não foi possível salvar a localização." });
     res.json(kioskToApi(data));
   }
 );

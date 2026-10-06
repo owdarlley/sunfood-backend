@@ -327,6 +327,24 @@ test("admin muda o pedido mínimo e o cliente sente na hora", async () => {
 });
 
 let pixOrder;
+test("admin muda a localização do quiosque e o cliente vê", async () => {
+  const admin = "tok-admin-1";
+  let r = await api("GET", "/kiosk-settings");
+  assert.equal(r.body.location.name, "Quiosque Sunfood · Praia do Forte", "sem coluna no banco: texto padrão");
+  const novo = { name: "Sunfood na Faculdade", address: "Av. Brasil, 100 - Centro, Santos - SP", hours: "Seg. a sex., 8h às 22h." };
+  r = await api("PATCH", "/kiosk-settings/location", novo, anaToken);
+  assert.equal(r.status, 403, "cliente não muda a localização");
+  r = await api("PATCH", "/kiosk-settings/location", { ...novo, address: "  " }, admin);
+  assert.equal(r.status, 400);
+  r = await api("PATCH", "/kiosk-settings/location", { ...novo, name: "x".repeat(81) }, admin);
+  assert.equal(r.status, 400);
+  r = await api("PATCH", "/kiosk-settings/location", { ...novo, name: "  Sunfood na Faculdade  " }, admin);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.location, novo);
+  r = await api("GET", "/kiosk-settings");
+  assert.deepEqual(r.body.location, novo);
+});
+
 test("admin escolhe quantas mesas existem e o pedido respeita", async () => {
   const admin = "tok-admin-1";
   const pedir = (tableNumber) => api("POST", "/orders", { tableNumber, items: [{ productId: P2, qty: 2 }], paymentMethod: "entrega" }, anaToken);

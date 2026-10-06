@@ -45,6 +45,24 @@ export function tableCountFrom(settings) {
   return Number.isInteger(v) && v >= 1 ? v : DEFAULT_TABLE_COUNT;
 }
 
+// Onde fica o quiosque (kiosk_settings.location_*, escolhido pelo admin). Cai
+// no texto antigo se a coluna ainda não existir (API publicada antes da
+// migration) ou vier vazia.
+export const DEFAULT_LOCATION = {
+  name: "Quiosque Sunfood · Praia do Forte",
+  address: "Av. Beira-Mar, s/n, em frente ao posto 4",
+  hours: "Aberto todos os dias, 9h às 18h.",
+};
+
+export function locationFrom(settings) {
+  const pick = (v, fallback) => (typeof v === "string" && v.trim() ? v.trim() : fallback);
+  return {
+    name: pick(settings?.location_name, DEFAULT_LOCATION.name),
+    address: pick(settings?.location_address, DEFAULT_LOCATION.address),
+    hours: typeof settings?.location_hours === "string" ? settings.location_hours.trim() : DEFAULT_LOCATION.hours,
+  };
+}
+
 export function formatBRL(cents) {
   return "R$ " + (cents / 100).toFixed(2).replace(".", ",");
 }

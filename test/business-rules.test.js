@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   DEFAULT_TABLE_COUNT,
+  DEFAULT_LOCATION,
+  locationFrom,
   tableCountFrom,
   MIN_ORDER_CENTS,
   SERVICE_FEE_RATE,
@@ -126,4 +128,11 @@ test("tableCountFrom usa a quantidade de mesas do banco e cai no padrão se falt
   assert.equal(tableCountFrom({ table_count: 0 }), DEFAULT_TABLE_COUNT);
   assert.equal(tableCountFrom({ paused: false }), DEFAULT_TABLE_COUNT);
   assert.equal(tableCountFrom(null), DEFAULT_TABLE_COUNT);
+});
+
+test("locationFrom usa o local do banco e cai no padrão se faltar", () => {
+  assert.deepEqual(locationFrom({ location_name: " Faculdade ", location_address: "Rua A, 10", location_hours: "" }), { name: "Faculdade", address: "Rua A, 10", hours: "" });
+  assert.deepEqual(locationFrom({ paused: false }), DEFAULT_LOCATION);
+  assert.deepEqual(locationFrom(null), DEFAULT_LOCATION);
+  assert.equal(locationFrom({ location_name: "  ", location_address: "Rua A, 10" }).name, DEFAULT_LOCATION.name);
 });
