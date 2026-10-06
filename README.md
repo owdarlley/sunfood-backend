@@ -119,7 +119,7 @@ Senhas ficam só como hash dentro do Supabase Auth — o backend nunca vê nem g
 
 ## Deploy (Vercel)
 
-O projeto já está preparado pra rodar como função serverless (`api/index.js` + `vercel.json`). Pra publicar:
+O projeto já está preparado pra rodar como função serverless (`api/index.js` + `vercel.json`). A função roda em `pdx1` (Portland, EUA), perto do banco do Supabase (`us-west-2`, Oregon): cada pedido à API faz 2 ou mais consultas ao banco em sequência, e com a função na região padrão da Vercel (Washington) cada uma atravessava os EUA. Se o banco mudar de região, mude `regions` no `vercel.json` junto. Pra publicar:
 
 1. No painel da Vercel, confirme as variáveis de ambiente do projeto (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `PASSWORD_RESET_REDIRECT_URL`, `EMAIL_CONFIRM_REDIRECT_URL`, `CORS_ORIGIN`, `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_WEBHOOK_SECRET`).
 2. No painel do Supabase, em Authentication → URL Configuration, adicione a URL de `redefinir-senha.html` publicada na lista de Redirect URLs (senão o link do e-mail de recuperação de senha não funciona).
