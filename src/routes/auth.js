@@ -151,14 +151,33 @@ authRouter.post("/resend-confirmation", forgotLimiter, validate(resendConfirmati
 });
 
 // Recuperação de senha de verdade — dispara o e-mail que o Supabase Auth
-// envia (link assinado, expira sozinho). Sempre responde OK, exista ou não
-// o e-mail, pra não vazar quais contas existem.
+// envia (link assinado, expira sozinho). Avisa quando o e-mail não tem conta
+// (pedido do dono: o cliente precisa saber que digitou errado) ou quando a
+// conta só entra pelo Google e não tem senha. O cadastro já revela se um
+// e-mail existe, então isso não abre nada novo; o forgotLimiter segura
+// quem tentar testar e-mails em massa.
 authRouter.post("/forgot-password", forgotLimiter, validate(forgotPasswordSchema), async (req, res) => {
-  const { email } = req.body;
-  await supabaseAuth.auth.resetPasswordForEmail(email, {
+  const email = req.body.email.toLowerCase();
+  const { data: profile } = await supabaseAdmin.from("profiles").select("id").eq("email", email).maybeSingle();
+  if (!profile) {
+    return res.status(404).json({
+      error: "Não encontramos uma conta com este e-mail. Confira se digitou certo ou crie uma conta.",
+      code: "email_not_found",
+    });
+  }
+  const { data: found } = await supabaseAdmin.auth.admin.getUserById(profile.id);
+  const providers = found?.user?.app_metadata?.providers || [];
+  if (providers.length && !providers.includes("email")) {
+    return res.status(400).json({
+      error: "Esta conta foi criada com o Google e não tem senha. Use o botão \"Entrar com Google\".",
+      code: "google_account",
+    });
+  }
+  const { error } = await supabaseAuth.auth.resetPasswordForEmail(email, {
     redirectTo: process.env.PASSWORD_RESET_REDIRECT_URL,
   });
-  res.json({ message: "Se esse e-mail tiver cadastro, enviamos um link de redefinição." });
+  if (error) return res.status(502).json({ error: "Não foi possível enviar o e-mail agora. Tente de novo em alguns minutos." });
+  res.json({ message: "Enviamos um link de redefinição para o seu e-mail." });
 });
 
 // Segunda metade da recuperação de senha: o link do e-mail volta pro site
