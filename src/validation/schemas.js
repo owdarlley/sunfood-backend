@@ -142,6 +142,14 @@ export const kioskTableCountSchema = z.object({
     .max(MAX_TABLE_COUNT, `O máximo é ${MAX_TABLE_COUNT} mesas.`),
 });
 
+// Onde fica o quiosque: nome, endereço (vira o mapa e o link do Google Maps)
+// e horário (opcional).
+export const kioskLocationSchema = z.object({
+  name: z.string({ required_error: "Digite o nome do local." }).trim().min(1, "Digite o nome do local.").max(80, "Nome com no máximo 80 letras."),
+  address: z.string({ required_error: "Digite o endereço." }).trim().min(5, "Digite o endereço completo.").max(200, "Endereço com no máximo 200 letras."),
+  hours: z.string().trim().max(120, "Horário com no máximo 120 letras.").optional().default(""),
+});
+
 // Minutos que o cliente tem pra cancelar depois de fazer o pedido; 0 = sem prazo.
 export const kioskCancelWindowSchema = z.object({
   minutes: z
