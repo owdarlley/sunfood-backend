@@ -38,6 +38,7 @@ function query(table) {
     update(p) { op = "update"; patch = p; return q; },
     eq(c, v) { filters.push((r) => r[c] === v); return q; },
     in(c, vs) { filters.push((r) => vs.includes(r[c])); return q; },
+    is(c, v) { filters.push((r) => (r[c] ?? null) === v); return q; },
     lt(c, v) { filters.push((r) => r[c] < v); return q; },
     order() { return q; },
     limit() { return q; },
@@ -100,6 +101,17 @@ const rpc = async (name, args) => {
     db.kiosk_tables = db.kiosk_tables.filter((t) => t.number <= n || db.orders.some((o) => o.table_number === t.number));
     return { data: n, error: null };
   }
+  if (name === "delete_or_archive_product") {
+    // Igual à função do banco: apaga se nenhum pedido usa, senão arquiva.
+    const p = db.products.find((x) => x.id === args.p_id && !x.archived_at);
+    if (!p) return { error: { message: "product_not_found" } };
+    if (db.order_items.some((i) => i.product_id === p.id)) {
+      Object.assign(p, { archived_at: new Date().toISOString(), sold_out: false });
+      return { data: { action: "archived", imageUrl: p.image_url ?? null }, error: null };
+    }
+    db.products = db.products.filter((x) => x !== p);
+    return { data: { action: "deleted", imageUrl: p.image_url ?? null }, error: null };
+  }
   if (name === "set_order_status") return setStatus(args.p_order_id, args.p_status);
   if (name === "close_day") {
     if (db.kiosk_settings[0].day_closed) return { error: { message: "day_already_closed" } };
@@ -156,11 +168,13 @@ const auth = {
   },
 };
 
-// Storage falso: guarda os arquivos enviados em memória.
+// Storage falso: guarda os arquivos enviados (e apagados) em memória.
 const uploads = [];
+const removed = [];
 const storage = {
   from: (bucket) => ({
     async upload(path, body, opts) { uploads.push({ bucket, path, body, opts }); return { data: { path }, error: null }; },
+    async remove(paths) { removed.push(...paths.map((path) => ({ bucket, path }))); return { data: [], error: null }; },
   }),
 };
 
@@ -589,4 +603,43 @@ test("admin envia foto do produto e ela aparece no cardápio", async () => {
   assert.equal(menu.body.find((p) => p.id === P1).imageUrl, url);
   const tirar = await api("PUT", "/products/" + P1, { ...produto, imageUrl: null }, admin);
   assert.equal(tirar.body.imageUrl, null);
+});
+
+test("admin exclui item: sem pedido apaga (e a foto), com pedido arquiva", async () => {
+  const admin = staff("admin");
+  const novo = await api("POST", "/products", { name: "Pastel", category: "Lanches", price: 12,
+    imageUrl: "https://teste.supabase.co/storage/v1/object/public/produtos/pastel.jpg" }, admin);
+  assert.equal(novo.status, 201);
+
+  assert.equal((await api("DELETE", "/products/" + novo.body.id)).status, 401);
+  assert.equal((await api("DELETE", "/products/" + novo.body.id, null, staff("cozinha"))).status, 403);
+
+  const apagado = await api("DELETE", "/products/" + novo.body.id, null, admin);
+  assert.equal(apagado.status, 200);
+  assert.equal(apagado.body.action, "deleted");
+  assert.ok(!db.products.some((p) => p.id === novo.body.id), "saiu do banco");
+  assert.deepEqual(removed.at(-1), { bucket: "produtos", path: "pastel.jpg" }, "foto apagada do Storage");
+  assert.equal((await api("DELETE", "/products/" + novo.body.id, null, admin)).status, 404);
+
+  // P2 (Água de Coco) já foi pedido nos testes anteriores.
+  assert.ok(db.order_items.some((i) => i.product_id === P2));
+  const fotosAntes = removed.length;
+  const arquivado = await api("DELETE", "/products/" + P2, null, admin);
+  assert.equal(arquivado.body.action, "archived");
+  assert.equal(removed.length, fotosAntes, "foto de produto arquivado fica");
+  assert.ok(db.order_items.some((i) => i.product_id === P2), "histórico continua");
+  const menu = await api("GET", "/products");
+  assert.ok(!menu.body.some((p) => p.id === P2), "some do cardápio");
+  assert.equal((await api("PUT", "/products/" + P2, { name: "Água", category: "Bebidas", price: 8 }, admin)).status, 404);
+  assert.equal((await api("PATCH", "/products/" + P2 + "/sold-out", { soldOut: true }, admin)).status, 404);
+  assert.equal((await api("DELETE", "/products/" + P2, null, admin)).status, 404);
+
+  // A conta da Ana foi excluída num teste anterior: outra cliente, já completa.
+  db.profiles.push({ id: "cli-2", email: "bia@teste.com", name: "Bia", role: "cliente", phone: "11988887777",
+    cpf: "11144477735", birth_date: "2000-01-01", terms_accepted_at: new Date().toISOString() });
+  db.users["tok-cli-2"] = { id: "cli-2", email: "bia@teste.com" };
+  const pedido = await api("POST", "/orders", { tableNumber: 1, paymentMethod: "pix",
+    items: [{ productId: P2, qty: 2 }] }, "tok-cli-2");
+  assert.equal(pedido.status, 409, "carrinho antigo com item excluído não passa");
+  assert.match(pedido.body.error, /saiu do cardápio/);
 });

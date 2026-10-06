@@ -109,6 +109,7 @@ ordersRouter.post("/", requireAuth, requireRole("cliente"), requireCompleteProfi
   for (const item of items) {
     const product = byId.get(item.productId);
     if (!product) return res.status(404).json({ error: `Produto ${item.productId} não encontrado.` });
+    if (product.archived_at) return res.status(409).json({ error: `${product.name} saiu do cardápio.` });
     if (product.sold_out) return res.status(409).json({ error: `Item indisponível: ${product.name}.` });
     if (product.stock_qty !== null && product.stock_qty < item.qty) {
       return res.status(409).json({ error: `Estoque insuficiente: ${product.name} (restam ${product.stock_qty}).` });
