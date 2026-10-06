@@ -96,10 +96,13 @@ Senhas ficam só como hash dentro do Supabase Auth — o backend nunca vê nem g
 | GET | `/day-reports/latest` | admin | Último relatório de fechamento do dia |
 | POST | `/close-day` | admin | Encerra o dia e grava o relatório |
 | POST | `/reopen-day` | admin | Desfaz o encerramento |
+| POST | `/contact` | — | "Fale conosco" do site: grava a mensagem e devolve o protocolo (limite: 5 / 15 min por IP) |
+| GET | `/contact` | admin | Mensagens recebidas pelo Fale conosco, mais novas primeiro |
+| PATCH | `/contact/:id/status` | admin | Marcar mensagem como respondida (ou nova) |
 
 ## Modelo de dados (Supabase Postgres)
 
-`profiles` (papel do usuário, ligado a `auth.users`), `products`, `kiosk_tables`, `orders` + `order_items` + `order_status_log`, `kiosk_settings`, `day_reports`. Ver as migrações aplicadas no projeto Supabase para o schema completo, incluindo as funções `create_order`, `set_order_status`, `dashboard_stats`, `ops_metrics`, `sales_report` e `close_day`, que gravam/agregam atomicamente e só são executáveis pelo `service_role` (nunca direto por um cliente autenticado).
+`profiles` (papel do usuário, ligado a `auth.users`), `products`, `kiosk_tables`, `orders` + `order_items` + `order_status_log`, `kiosk_settings`, `day_reports`, `contact_messages` (Fale conosco). Ver as migrações aplicadas no projeto Supabase para o schema completo, incluindo as funções `create_order`, `set_order_status`, `dashboard_stats`, `ops_metrics`, `sales_report` e `close_day`, que gravam/agregam atomicamente e só são executáveis pelo `service_role` (nunca direto por um cliente autenticado).
 
 ## Segurança
 

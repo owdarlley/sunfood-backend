@@ -8,6 +8,7 @@ import { tablesRouter } from "./routes/tables.js";
 import { ordersRouter } from "./routes/orders.js";
 import { adminRouter } from "./routes/admin.js";
 import { paymentsRouter } from "./routes/payments.js";
+import { contactRouter } from "./routes/contact.js";
 
 // Aceita uma lista separada por vírgula (ex.: GitHub Pages + localhost ao
 // mesmo tempo), não só uma origem única.
@@ -43,6 +44,7 @@ app.use("/products", productsRouter);
 app.use("/tables", tablesRouter);
 app.use("/orders", ordersRouter);
 app.use("/payments", paymentsRouter);
+app.use("/contact", contactRouter);
 app.use("/", adminRouter);
 
 // Handler de erro genérico — nunca vaza stack trace/detalhe interno pro cliente.
