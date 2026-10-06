@@ -2,6 +2,7 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { supabaseAuth, supabaseAdmin } from "../supabase.js";
 import { requireAuth, isProfileComplete } from "../middleware/auth.js";
+import { maskEmail } from "../mask-email.js";
 import {
   loginSchema,
   signupSchema,
@@ -156,27 +157,39 @@ authRouter.post("/resend-confirmation", forgotLimiter, validate(resendConfirmati
 // conta só entra pelo Google e não tem senha. O cadastro já revela se um
 // e-mail existe, então isso não abre nada novo; o forgotLimiter segura
 // quem tentar testar e-mails em massa.
+// Também aceita o CPF, pra quem não lembra o e-mail do cadastro: o link vai
+// pro e-mail da conta e a resposta mostra esse e-mail mascarado
+// (d*****7@gmail.com), só o bastante pro cliente saber onde procurar.
 authRouter.post("/forgot-password", forgotLimiter, validate(forgotPasswordSchema), async (req, res) => {
-  const email = req.body.email.toLowerCase();
-  const { data: profile } = await supabaseAdmin.from("profiles").select("id").eq("email", email).maybeSingle();
-  if (!profile) {
-    return res.status(404).json({
-      error: "Não encontramos uma conta com este e-mail. Confira se digitou certo ou crie uma conta.",
-      code: "email_not_found",
-    });
+  const byCpf = !req.body.email;
+  const { data: profile } = byCpf
+    ? await supabaseAdmin.from("profiles").select("id, email").eq("cpf", req.body.cpf).maybeSingle()
+    : await supabaseAdmin.from("profiles").select("id, email").eq("email", req.body.email.toLowerCase()).maybeSingle();
+  if (!profile?.email) {
+    return res.status(404).json(
+      byCpf
+        ? { error: "Não encontramos uma conta com este CPF. Confira os números ou crie uma conta.", code: "cpf_not_found" }
+        : { error: "Não encontramos uma conta com este e-mail. Confira se digitou certo ou crie uma conta.", code: "email_not_found" },
+    );
   }
+  const email = profile.email.toLowerCase();
   const { data: found } = await supabaseAdmin.auth.admin.getUserById(profile.id);
   const providers = found?.user?.app_metadata?.providers || [];
   if (providers.length && !providers.includes("email")) {
     return res.status(400).json({
       error: "Esta conta foi criada com o Google e não tem senha. Use o botão \"Entrar com Google\".",
       code: "google_account",
+      ...(byCpf && { sentTo: maskEmail(email) }),
     });
   }
   const { error } = await supabaseAuth.auth.resetPasswordForEmail(email, {
     redirectTo: process.env.PASSWORD_RESET_REDIRECT_URL,
   });
   if (error) return res.status(502).json({ error: "Não foi possível enviar o e-mail agora. Tente de novo em alguns minutos." });
+  if (byCpf) {
+    const sentTo = maskEmail(email);
+    return res.json({ message: `Enviamos um link de redefinição para ${sentTo}.`, sentTo });
+  }
   res.json({ message: "Enviamos um link de redefinição para o seu e-mail." });
 });
 
