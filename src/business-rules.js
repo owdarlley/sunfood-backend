@@ -35,6 +35,16 @@ export function minOrderCentsFrom(settings) {
   return Number.isInteger(v) && v >= 0 ? v : MIN_ORDER_CENTS;
 }
 
+// Quantas mesas o quiosque tem (kiosk_settings.table_count, escolhido pelo
+// admin). O cliente só pode pedir pra mesa de 1 até esse número.
+export const DEFAULT_TABLE_COUNT = 12;
+export const MAX_TABLE_COUNT = 500;
+
+export function tableCountFrom(settings) {
+  const v = settings?.table_count;
+  return Number.isInteger(v) && v >= 1 ? v : DEFAULT_TABLE_COUNT;
+}
+
 export function formatBRL(cents) {
   return "R$ " + (cents / 100).toFixed(2).replace(".", ",");
 }

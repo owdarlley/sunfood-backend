@@ -92,6 +92,14 @@ const rpc = async (name, args) => {
     }
     return { data: { id }, error: null };
   }
+  if (name === "set_table_count") {
+    // Igual à função do banco: cria as que faltam, apaga as que sobram sem pedido.
+    const n = args.p_count;
+    db.kiosk_settings[0].table_count = n;
+    for (let i = 1; i <= n; i++) if (!db.kiosk_tables.some((t) => t.number === i)) db.kiosk_tables.push({ number: i, active: true, seats: 4 });
+    db.kiosk_tables = db.kiosk_tables.filter((t) => t.number <= n || db.orders.some((o) => o.table_number === t.number));
+    return { data: n, error: null };
+  }
   if (name === "set_order_status") return setStatus(args.p_order_id, args.p_status);
   if (name === "close_day") {
     if (db.kiosk_settings[0].day_closed) return { error: { message: "day_already_closed" } };
@@ -319,6 +327,35 @@ test("admin muda o pedido mínimo e o cliente sente na hora", async () => {
 });
 
 let pixOrder;
+test("admin escolhe quantas mesas existem e o pedido respeita", async () => {
+  const admin = "tok-admin-1";
+  const pedir = (tableNumber) => api("POST", "/orders", { tableNumber, items: [{ productId: P2, qty: 2 }], paymentMethod: "entrega" }, anaToken);
+  let r = await api("PATCH", "/kiosk-settings/table-count", { count: 5 }, anaToken);
+  assert.equal(r.status, 403, "cliente não muda a quantidade de mesas");
+  r = await api("PATCH", "/kiosk-settings/table-count", { count: 0 }, admin);
+  assert.equal(r.status, 400);
+  r = await api("PATCH", "/kiosk-settings/table-count", { count: 2.5 }, admin);
+  assert.equal(r.status, 400);
+  r = await api("PATCH", "/kiosk-settings/table-count", { count: 5 }, admin);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.tableCount, 5);
+  r = await api("GET", "/tables");
+  assert.deepEqual(r.body.map((t) => t.number), [1, 2, 3, 4, 5]);
+  r = await pedir(6);
+  assert.equal(r.status, 404);
+  assert.match(r.body.error, /Mesa 6 não existe\. O quiosque tem mesas de 1 a 5/);
+  r = await pedir(5);
+  assert.equal(r.status, 201, "mesa nova já aceita pedido");
+  r = await api("PATCH", "/kiosk-settings/table-count", { count: 3 }, admin);
+  assert.equal(r.status, 200);
+  r = await api("GET", "/tables");
+  assert.deepEqual(r.body.map((t) => t.number), [1, 2, 3], "mesa 5 tem pedido: fica guardada mas some da lista");
+  r = await pedir(5);
+  assert.equal(r.status, 404);
+  r = await api("GET", "/kiosk-settings");
+  assert.equal(r.body.tableCount, 3);
+});
+
 test("PIX provisório: aprovado na hora e vai para a cozinha", async () => {
   let r = await api("POST", "/orders", { tableNumber: 1, items: [{ productId: P1, qty: 2 }], paymentMethod: "pix" }, anaToken);
   assert.equal(r.status, 201);

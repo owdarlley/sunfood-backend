@@ -2,6 +2,7 @@ import { Router } from "express";
 import { supabaseAdmin } from "../supabase.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { tableToggleSchema, validate } from "../validation/schemas.js";
+import { tableCountFrom } from "../business-rules.js";
 
 export const tablesRouter = Router();
 
@@ -10,10 +11,15 @@ function toApi(row) {
 }
 
 // Público: precisa ser lido tanto pelo cliente (validar mesa) quanto pelo admin.
+// Só as mesas de 1 até a quantidade escolhida pelo admin.
 tablesRouter.get("/", async (req, res) => {
-  const { data, error } = await supabaseAdmin.from("kiosk_tables").select("*").order("number");
+  const [{ data, error }, { data: settings }] = await Promise.all([
+    supabaseAdmin.from("kiosk_tables").select("*").order("number"),
+    supabaseAdmin.from("kiosk_settings").select("*").eq("id", 1).single(),
+  ]);
   if (error) return res.status(500).json({ error: "Erro ao carregar mesas." });
-  res.json(data.map(toApi));
+  const count = tableCountFrom(settings);
+  res.json(data.filter((t) => t.number <= count).map(toApi));
 });
 
 tablesRouter.patch(

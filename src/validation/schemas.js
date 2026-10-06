@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MAX_CANCEL_WINDOW_MINUTES, PAYMENT_METHODS, RECEIVED_WITH } from "../business-rules.js";
+import { MAX_CANCEL_WINDOW_MINUTES, MAX_TABLE_COUNT, PAYMENT_METHODS, RECEIVED_WITH } from "../business-rules.js";
 import { isValidCpf, onlyDigits } from "./cpf.js";
 
 export const loginSchema = z.object({
@@ -131,6 +131,15 @@ export const kioskPauseSchema = z.object({
 // Em reais (como os preços); 0 = sem pedido mínimo.
 export const kioskMinOrderSchema = z.object({
   minOrder: z.number().min(0, "Valor não pode ser negativo.").max(1000, "Valor máximo é R$ 1.000,00."),
+});
+
+// Quantas mesas (guarda-sóis) o quiosque tem; numeradas de 1 até esse número.
+export const kioskTableCountSchema = z.object({
+  count: z
+    .number({ invalid_type_error: "Digite a quantidade de mesas." })
+    .int("Use um número inteiro de mesas.")
+    .min(1, "O quiosque precisa ter pelo menos 1 mesa.")
+    .max(MAX_TABLE_COUNT, `O máximo é ${MAX_TABLE_COUNT} mesas.`),
 });
 
 // Minutos que o cliente tem pra cancelar depois de fazer o pedido; 0 = sem prazo.

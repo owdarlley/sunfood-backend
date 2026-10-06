@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  DEFAULT_TABLE_COUNT,
+  tableCountFrom,
   MIN_ORDER_CENTS,
   SERVICE_FEE_RATE,
   isValidTransition,
@@ -117,4 +119,11 @@ test("recebimento na entrega: só pedido 'entrega' que não foi cancelado", () =
   assert.equal(canRecordReceipt({ payment_method: "entrega", status: "Na Fila" }), true);
   assert.equal(canRecordReceipt({ payment_method: "entrega", status: "Cancelado" }), false);
   assert.equal(canRecordReceipt({ payment_method: "pix", status: "Entregue" }), false);
+});
+
+test("tableCountFrom usa a quantidade de mesas do banco e cai no padrão se faltar", () => {
+  assert.equal(tableCountFrom({ table_count: 30 }), 30);
+  assert.equal(tableCountFrom({ table_count: 0 }), DEFAULT_TABLE_COUNT);
+  assert.equal(tableCountFrom({ paused: false }), DEFAULT_TABLE_COUNT);
+  assert.equal(tableCountFrom(null), DEFAULT_TABLE_COUNT);
 });
