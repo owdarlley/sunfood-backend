@@ -7,6 +7,7 @@ import {
   computeOrderTotals,
   meetsMinimumOrder,
   minOrderCentsFrom,
+  tableCountFrom,
   formatBRL,
   canCancel,
   cancelWindowFrom,
@@ -80,6 +81,11 @@ ordersRouter.post("/", requireAuth, requireRole("cliente"), requireCompleteProfi
   }
   if (settings?.day_closed) {
     return res.status(409).json({ error: "O quiosque já encerrou o dia — não é possível fechar o pedido." });
+  }
+
+  const tableCount = tableCountFrom(settings);
+  if (tableNumber > tableCount) {
+    return res.status(404).json({ error: `Mesa ${tableNumber} não existe. O quiosque tem mesas de 1 a ${tableCount}.` });
   }
 
   const { data: table } = await supabaseAdmin

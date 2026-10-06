@@ -1,11 +1,12 @@
 import { Router } from "express";
 import { supabaseAdmin } from "../supabase.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
-import { cancelWindowFrom, minOrderCentsFrom } from "../business-rules.js";
+import { cancelWindowFrom, minOrderCentsFrom, tableCountFrom } from "../business-rules.js";
 import {
   kioskPauseSchema,
   kioskCancelWindowSchema,
   kioskMinOrderSchema,
+  kioskTableCountSchema,
   salesReportQuerySchema,
   REPORT_PERIODS,
   validate,
@@ -19,6 +20,7 @@ function kioskToApi(row) {
     dayClosed: !!row.day_closed,
     cancelWindowMinutes: cancelWindowFrom(row),
     minOrder: minOrderCentsFrom(row) / 100,
+    tableCount: tableCountFrom(row),
   };
 }
 
@@ -76,6 +78,22 @@ adminRouter.patch(
       .select()
       .single();
     if (error) return res.status(500).json({ error: "Não foi possível salvar o pedido mínimo." });
+    res.json(kioskToApi(data));
+  }
+);
+
+// Admin: quantas mesas o quiosque tem. A função do banco cria as mesas que
+// faltam e apaga as que sobram (as que já tiveram pedido ficam no histórico).
+adminRouter.patch(
+  "/kiosk-settings/table-count",
+  requireAuth,
+  requireRole("admin"),
+  validate(kioskTableCountSchema),
+  async (req, res) => {
+    const { error: rpcError } = await supabaseAdmin.rpc("set_table_count", { p_count: req.body.count });
+    if (rpcError) return res.status(500).json({ error: "Não foi possível salvar a quantidade de mesas." });
+    const { data, error } = await supabaseAdmin.from("kiosk_settings").select("*").eq("id", 1).single();
+    if (error) return res.status(500).json({ error: "Não foi possível salvar a quantidade de mesas." });
     res.json(kioskToApi(data));
   }
 );
