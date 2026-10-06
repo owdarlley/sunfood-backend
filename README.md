@@ -70,7 +70,8 @@ Senhas ficam só como hash dentro do Supabase Auth — o backend nunca vê nem g
 | POST | `/auth/delete-account` | qualquer | Exclui a própria conta (LGPD); os pedidos ficam no histórico sem dono |
 | GET | `/products` | — | Cardápio |
 | POST | `/products` | admin | Criar produto |
-| PUT | `/products/:id` | admin | Editar produto (inclui estoque) |
+| PUT | `/products/:id` | admin | Editar produto (inclui estoque e foto) |
+| POST | `/products/images` | admin | Enviar foto do produto (JPG/PNG/WebP até 2 MB, corpo = o arquivo); devolve `{ url }` pra usar em `imageUrl` |
 | PATCH | `/products/:id/sold-out` | admin, cozinha | Sinalizar item (in)disponível |
 | GET | `/tables` | — | Lista de mesas |
 | PATCH | `/tables/:number/active` | admin | Ativar/desativar mesa |

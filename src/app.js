@@ -49,6 +49,8 @@ app.use("/", adminRouter);
 
 // Handler de erro genérico — nunca vaza stack trace/detalhe interno pro cliente.
 app.use((err, req, res, next) => {
+  if (err.type === "entity.too.large")
+    return res.status(413).json({ error: "Arquivo grande demais. Use uma foto menor." });
   console.error(err);
   res.status(500).json({ error: "Erro interno do servidor." });
 });

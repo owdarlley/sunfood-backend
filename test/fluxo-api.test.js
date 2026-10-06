@@ -148,11 +148,20 @@ const auth = {
   },
 };
 
-const fake = { from: (t) => query(t), rpc, auth };
+// Storage falso: guarda os arquivos enviados em memória.
+const uploads = [];
+const storage = {
+  from: (bucket) => ({
+    async upload(path, body, opts) { uploads.push({ bucket, path, body, opts }); return { data: { path }, error: null }; },
+  }),
+};
+
+const fake = { from: (t) => query(t), rpc, auth, storage };
 mock.module("../src/supabase.js", { namedExports: { supabaseAdmin: fake, supabaseAuth: fake } });
 
 let base, server;
 before(async () => {
+  process.env.SUPABASE_URL = "https://teste.supabase.co";
   delete process.env.MERCADOPAGO_ACCESS_TOKEN; // pagamentos no modo provisório
   const { app } = await import("../src/app.js");
   server = app.listen(0);
@@ -490,4 +499,39 @@ test("excluir conta apaga o acesso e mantém os pedidos sem dono", async () => {
   assert.equal(me.status, 401);
   assert.ok(db.orders.length >= antes, "pedidos continuam no histórico");
   assert.ok(db.orders.every((o) => o.customer_id !== "u1"));
+});
+
+test("admin envia foto do produto e ela aparece no cardápio", async () => {
+  const admin = staff("admin");
+  const jpg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(500, 1)]);
+  const enviar = (body, token, type = "image/jpeg") =>
+    fetch(base + "/products/images", { method: "POST", body,
+      headers: { "Content-Type": type, ...(token ? { Authorization: "Bearer " + token } : {}) } });
+
+  assert.equal((await enviar(jpg)).status, 401);
+  assert.equal((await enviar(jpg, staff("cozinha"))).status, 403);
+  const html = await enviar(Buffer.from("<html><script>alert(1)</script>"), admin, "image/jpeg");
+  assert.equal(html.status, 400, "confere a assinatura, não o Content-Type");
+  assert.equal((await enviar(Buffer.alloc(3 * 1024 * 1024, 0xff), admin)).status, 413);
+
+  const r = await enviar(jpg, admin);
+  assert.equal(r.status, 201);
+  const { url } = await r.json();
+  assert.match(url, /^https:\/\/teste\.supabase\.co\/storage\/v1\/object\/public\/produtos\/[0-9a-f-]+\.jpg$/);
+  assert.equal(uploads.at(-1).bucket, "produtos");
+  assert.equal(uploads.at(-1).opts.contentType, "image/jpeg");
+  assert.ok(uploads.at(-1).body.equals(jpg));
+
+  const produto = { name: "Batata Frita", category: "Lanches", price: 25 };
+  const fora = await api("PUT", "/products/" + P1, { ...produto, imageUrl: "https://site-qualquer.com/x.jpg" }, admin);
+  assert.equal(fora.status, 400, "só aceita foto do nosso bucket");
+  const ok = await api("PUT", "/products/" + P1, { ...produto, imageUrl: url }, admin);
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.imageUrl, url);
+  const semMexer = await api("PUT", "/products/" + P1, produto, admin);
+  assert.equal(semMexer.body.imageUrl, url, "editar sem mandar imageUrl mantém a foto");
+  const menu = await api("GET", "/products");
+  assert.equal(menu.body.find((p) => p.id === P1).imageUrl, url);
+  const tirar = await api("PUT", "/products/" + P1, { ...produto, imageUrl: null }, admin);
+  assert.equal(tirar.body.imageUrl, null);
 });
