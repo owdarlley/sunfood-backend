@@ -1,27 +1,27 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Confirme seu cadastro no Sunfood</title></head>
-<body style="margin:0;padding:0;background:#FFF3DE;font-family:Arial,Helvetica,sans-serif;color:#1B2430">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FFF3DE;padding:24px 12px">
+<body style="margin:0;padding:0;background:#F6F3EC;font-family:'DM Sans',Arial,Helvetica,sans-serif;color:#12232E">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F6F3EC;padding:24px 12px">
     <tr><td align="center">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #E9E1D6">
-        <tr><td style="background:#FF6B35;padding:28px 24px;text-align:center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #E3DDD0">
+        <tr><td style="background:#0B6670;padding:28px 24px;text-align:center">
           <div style="font-size:30px;line-height:1">☀️</div>
           <div style="font-size:28px;font-weight:bold;color:#ffffff;margin-top:6px">Sunfood</div>
-          <div style="font-size:13px;color:#FFF3DE;margin-top:4px">Comida boa sem sair da areia</div>
+          <div style="font-size:13px;color:#FFE3A3;margin-top:4px">Comida boa sem sair da areia</div>
         </td></tr>
         <tr><td style="padding:28px 24px 8px">
-          <h1 style="margin:0 0 12px;font-size:22px;color:#1B2430">Olá, {{ .Data.name }}! 👋</h1>
-          <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#4B5563">Falta só um passo para você fazer seu primeiro pedido. Toque no botão abaixo para confirmar seu e-mail.</p>
+          <h1 style="margin:0 0 12px;font-size:22px;color:#12232E">Olá, {{ .Data.name }}! 👋</h1>
+          <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#5A6670">Falta só um passo para você fazer seu primeiro pedido. Toque no botão abaixo para confirmar seu e-mail.</p>
         </td></tr>
         <tr><td align="center" style="padding:8px 24px 24px">
-          <a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#FF6B35;color:#ffffff;text-decoration:none;font-weight:bold;font-size:16px;padding:15px 32px;border-radius:12px">Confirmar meu e-mail</a>
+          <a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#FFB21E;color:#12232E;text-decoration:none;font-weight:bold;font-size:16px;padding:15px 32px;border-radius:12px">Confirmar meu e-mail</a>
         </td></tr>
         <tr><td style="padding:0 24px 24px">
-          <p style="margin:0 0 8px;font-size:12px;line-height:1.6;color:#6B7280">Se o botão não funcionar, copie e cole este link no navegador:</p>
-          <p style="margin:0;font-size:12px;line-height:1.5;word-break:break-all"><a href="{{ .ConfirmationURL }}" style="color:#E8551E">{{ .ConfirmationURL }}</a></p>
+          <p style="margin:0 0 8px;font-size:12px;line-height:1.6;color:#5A6670">Se o botão não funcionar, copie e cole este link no navegador:</p>
+          <p style="margin:0;font-size:12px;line-height:1.5;word-break:break-all"><a href="{{ .ConfirmationURL }}" style="color:#0B6670">{{ .ConfirmationURL }}</a></p>
         </td></tr>
-        <tr><td style="background:#FFF3DE;padding:16px 24px;text-align:center;font-size:12px;line-height:1.6;color:#6B7280">
+        <tr><td style="background:#F6F3EC;padding:16px 24px;text-align:center;font-size:12px;line-height:1.6;color:#5A6670">
           Você recebeu este e-mail porque criou uma conta no Sunfood com {{ .Email }}.<br>Se não foi você, é só ignorar esta mensagem.
         </td></tr>
       </table>
