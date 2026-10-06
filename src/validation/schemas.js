@@ -145,11 +145,12 @@ export const salesReportQuerySchema = z.object({
   period: z.enum(Object.keys(REPORT_PERIODS), { message: "Período inválido. Use hoje, 7d ou 30d." }).default("hoje"),
 });
 
-// "Fale conosco" do site: o contato pode ser e-mail ou telefone.
+// "Fale conosco" do site (painel do login): o contato pode ser e-mail ou
+// telefone. Os motivos são os mesmos do <select> do index.html do site.
 export const CONTACT_REASONS = [
   "Reservar mesa ou guarda-sol",
   "Tirar dúvida sobre o cardápio",
-  "Dúvida sobre pagamento ou divisão de conta",
+  "Dúvida sobre pagamento",
   "Suporte com um pedido em andamento",
   "Parceria com meu quiosque",
 ];
