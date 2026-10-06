@@ -9,7 +9,9 @@ import {
   orderStatusUpdateSchema,
   productSchema,
   resendConfirmationSchema,
+  forgotPasswordSchema,
 } from "../src/validation/schemas.js";
+import { maskEmail } from "../src/mask-email.js";
 
 test("loginSchema exige e-mail válido e senha", () => {
   assert.equal(loginSchema.safeParse({ email: "não é email", password: "123456" }).success, false);
@@ -128,4 +130,16 @@ test("resendConfirmationSchema exige um e-mail válido", () => {
   assert.equal(resendConfirmationSchema.safeParse({ email: " ana@email.com " }).success, true);
   assert.equal(resendConfirmationSchema.safeParse({ email: "ana" }).success, false);
   assert.equal(resendConfirmationSchema.safeParse({}).success, false);
+});
+
+test("forgotPasswordSchema aceita e-mail ou CPF", () => {
+  assert.equal(forgotPasswordSchema.safeParse({ email: "a@b.com" }).success, true);
+  assert.equal(forgotPasswordSchema.safeParse({ cpf: "529.982.247-25" }).data.cpf, "52998224725");
+  assert.equal(forgotPasswordSchema.safeParse({ cpf: "123.456.789-00" }).success, false);
+  assert.equal(forgotPasswordSchema.safeParse({}).success, false);
+});
+
+test("maskEmail esconde o meio do e-mail", () => {
+  assert.equal(maskEmail("darlley1997@gmail.com"), "d*****7@gmail.com");
+  assert.equal(maskEmail("ab@x.com"), "a*@x.com");
 });

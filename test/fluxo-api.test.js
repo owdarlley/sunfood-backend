@@ -161,10 +161,11 @@ before(async () => {
 });
 after(() => server.close());
 
-async function api(method, path, body, token) {
+async function api(method, path, body, token, ip) {
   const res = await fetch(base + path, {
     method,
-    headers: { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) },
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}),
+      ...(ip ? { "X-Forwarded-For": ip } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
@@ -240,6 +241,37 @@ test("esqueci minha senha: avisa e-mail sem conta e conta só do Google", async 
   assert.equal(google.status, 400);
   assert.equal(google.body.code, "google_account");
   assert.equal(db.resetSent.length, 1, "não manda e-mail nos casos de erro");
+});
+
+test("esqueci minha senha pelo CPF: manda pro e-mail da conta e mostra ele mascarado", async () => {
+  const sent = db.resetSent.length;
+  // IP próprio: o limite de 5 pedidos por IP já foi gasto no teste anterior.
+  const forgot = (body) => api("POST", "/auth/forgot-password", body, null, "10.0.0.9");
+  const ok = await forgot({ cpf: "529.982.247-25" });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal(db.resetSent.at(-1), "ana@teste.com", "link vai pro e-mail cadastrado");
+  assert.equal(ok.body.sentTo, "a*a@teste.com");
+  assert.ok(!JSON.stringify(ok.body).includes("ana@teste.com"), "não expõe o e-mail inteiro");
+  const nope = await forgot({ cpf: "111.444.777-35" });
+  assert.equal(nope.status, 404);
+  assert.equal(nope.body.code, "cpf_not_found");
+  const bad = await forgot({ cpf: "123.456.789-00" });
+  assert.equal(bad.status, 400);
+  const empty = await forgot({});
+  assert.equal(empty.status, 400);
+  db.profiles.push({ id: "g-2", email: "caio@gmail.com", cpf: "39053344705", name: "Caio", role: "cliente", providers: ["google"] });
+  const google = await forgot({ cpf: "390.533.447-05" });
+  assert.equal(google.status, 400);
+  assert.equal(google.body.code, "google_account");
+  assert.equal(google.body.sentTo, "c**o@gmail.com");
+  db.profiles.pop();
+  assert.equal(db.resetSent.length, sent + 1, "só manda e-mail no caso certo");
+});
+
+test("esqueci minha senha: limite de pedidos por IP vale pro CPF também", async () => {
+  let last;
+  for (let i = 0; i < 6; i++) last = await api("POST", "/auth/forgot-password", { cpf: "111.444.777-35" }, null, "10.0.0.10");
+  assert.equal(last.status, 429);
 });
 
 test("cardápio mostra estoque e esgotado", async () => {

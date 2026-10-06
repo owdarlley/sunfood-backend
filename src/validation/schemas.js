@@ -58,9 +58,14 @@ export const completeProfileSchema = z.object({
   termsAccepted: termsField,
 });
 
-export const forgotPasswordSchema = z.object({
-  email: z.string().trim().email("E-mail inválido."),
-});
+// Esqueci minha senha: o cliente manda o e-mail OU o CPF (pra quem não
+// lembra com qual e-mail se cadastrou).
+export const forgotPasswordSchema = z
+  .object({
+    email: z.string().trim().email("E-mail inválido.").optional(),
+    cpf: cpfField.optional(),
+  })
+  .refine((d) => d.email || d.cpf, { message: "Informe seu e-mail ou CPF.", path: ["email"] });
 
 export const resendConfirmationSchema = z.object({
   email: z.string().trim().email("E-mail inválido."),
