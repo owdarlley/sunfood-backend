@@ -1,4 +1,5 @@
-import { Router } from "express";
+import { randomUUID } from "node:crypto";
+import express, { Router } from "express";
 import { supabaseAdmin } from "../supabase.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { productSchema, soldOutToggleSchema, validate } from "../validation/schemas.js";
@@ -25,6 +26,7 @@ function toApi(row) {
     reviewCount: row.review_count,
     ingredients: row.ingredients,
     imageKey: row.mark,
+    imageUrl: row.image_url || null,
     tags: row.tags || [],
   };
 }
@@ -43,7 +45,39 @@ function fromApi(p) {
   // sobrescrever o saldo com um valor velho (pedidos feitos enquanto o
   // formulário estava aberto seriam "desfeitos").
   if (p.stockQty !== undefined) row.stock_qty = p.stockQty;
+  // Mesma ideia: ausente = mantém a foto; null = tira a foto.
+  if (p.imageUrl !== undefined) row.image_url = p.imageUrl;
   return row;
+}
+
+// Fotos dos produtos ficam no Storage do Supabase, num bucket público (o
+// cardápio mostra sem login). Só esta API grava nele, com a service role,
+// depois de conferir que quem enviou é admin.
+export const PRODUCT_IMAGES_BUCKET = "produtos";
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+
+function publicImagePrefix() {
+  return `${process.env.SUPABASE_URL}/storage/v1/object/public/${PRODUCT_IMAGES_BUCKET}/`;
+}
+
+// Confere a assinatura do arquivo em vez de confiar no Content-Type: um .html
+// renomeado pra .jpg não vira "foto" servida pelo nosso domínio do Storage.
+function imageType(buf) {
+  if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return { ext: "jpg", mime: "image/jpeg" };
+  if (buf.length > 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])))
+    return { ext: "png", mime: "image/png" };
+  if (buf.length > 12 && buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP")
+    return { ext: "webp", mime: "image/webp" };
+  return null;
+}
+
+// A foto só pode apontar pro nosso bucket: impede o admin (ou um token roubado)
+// de colocar no cardápio uma imagem de um site qualquer.
+function checkImageUrl(req, res, next) {
+  const url = req.body.imageUrl;
+  if (url != null && !url.startsWith(publicImagePrefix()))
+    return res.status(400).json({ error: "Foto inválida. Envie a foto pelo botão do formulário." });
+  next();
 }
 
 // Público: cardápio do cliente.
@@ -57,8 +91,28 @@ productsRouter.get("/", async (req, res) => {
   res.json(data.map(toApi));
 });
 
+// Admin: envia a foto (o navegador já reduz e comprime) e recebe o endereço
+// público, que vai no imageUrl ao criar/editar o produto.
+productsRouter.post(
+  "/images",
+  requireAuth,
+  requireRole("admin"),
+  express.raw({ type: () => true, limit: MAX_IMAGE_BYTES }),
+  async (req, res) => {
+    const buf = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    const type = imageType(buf);
+    if (!type) return res.status(400).json({ error: "Envie uma foto em JPG, PNG ou WebP." });
+    const path = `${randomUUID()}.${type.ext}`;
+    const { error } = await supabaseAdmin.storage
+      .from(PRODUCT_IMAGES_BUCKET)
+      .upload(path, buf, { contentType: type.mime, cacheControl: "31536000", upsert: false });
+    if (error) return res.status(500).json({ error: "Não foi possível guardar a foto." });
+    res.status(201).json({ url: publicImagePrefix() + path });
+  }
+);
+
 // Admin: criar produto novo (corrige o savePf() do protótipo, que nunca persistia).
-productsRouter.post("/", requireAuth, requireRole("admin"), validate(productSchema), async (req, res) => {
+productsRouter.post("/", requireAuth, requireRole("admin"), validate(productSchema), checkImageUrl, async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from("products")
     .insert(fromApi(req.body))
@@ -69,7 +123,7 @@ productsRouter.post("/", requireAuth, requireRole("admin"), validate(productSche
 });
 
 // Admin: editar produto existente.
-productsRouter.put("/:id", requireAuth, requireRole("admin"), validate(productSchema), async (req, res) => {
+productsRouter.put("/:id", requireAuth, requireRole("admin"), validate(productSchema), checkImageUrl, async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from("products")
     .update(fromApi(req.body))
