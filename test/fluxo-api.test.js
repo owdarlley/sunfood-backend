@@ -22,6 +22,7 @@ const db = {
   pending: {}, // e-mails cadastrados que ainda não confirmaram
   passwords: {},
   resent: [],
+  resetSent: [],
 };
 
 const TRANSITIONS = { "Na Fila": ["Em Preparo", "Cancelado"], "Em Preparo": ["Pronto"], Pronto: ["Entregue"] };
@@ -131,8 +132,12 @@ const auth = {
     return { data: { user: { id: prof.id, email }, session: { access_token: token, refresh_token: "r" } }, error: null };
   },
   async resend({ email }) { db.resent.push(email); return { error: null }; },
-  async resetPasswordForEmail() { return { error: null }; },
+  async resetPasswordForEmail(email) { db.resetSent.push(email); return { error: null }; },
   admin: {
+    async getUserById(id) {
+      const p = db.profiles.find((x) => x.id === id);
+      return { data: { user: p && { id, email: p.email, app_metadata: { providers: p.providers || ["email"] } } }, error: null };
+    },
     async deleteUser(id) {
       db.profiles = db.profiles.filter((p) => p.id !== id);
       db.orders.filter((o) => o.customer_id === id).forEach((o) => (o.customer_id = null)); // ON DELETE SET NULL
@@ -219,6 +224,21 @@ test("depois de confirmar, login entra como cliente", async () => {
   anaToken = r.body.token;
   const me = await api("GET", "/auth/me", null, anaToken);
   assert.equal(me.body.user.email, ana.email);
+});
+
+test("esqueci minha senha: avisa e-mail sem conta e conta só do Google", async () => {
+  const ok = await api("POST", "/auth/forgot-password", { email: " ANA@teste.com " });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.deepEqual(db.resetSent, ["ana@teste.com"], "manda o link para a conta certa");
+  const nope = await api("POST", "/auth/forgot-password", { email: "ana@tste.com" });
+  assert.equal(nope.status, 404);
+  assert.equal(nope.body.code, "email_not_found");
+  assert.match(nope.body.error, /Não encontramos uma conta/);
+  db.profiles.push({ id: "g-1", email: "bia@gmail.com", name: "Bia", role: "cliente", providers: ["google"] });
+  const google = await api("POST", "/auth/forgot-password", { email: "bia@gmail.com" });
+  assert.equal(google.status, 400);
+  assert.equal(google.body.code, "google_account");
+  assert.equal(db.resetSent.length, 1, "não manda e-mail nos casos de erro");
 });
 
 test("cardápio mostra estoque e esgotado", async () => {
