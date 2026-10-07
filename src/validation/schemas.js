@@ -194,6 +194,11 @@ export const contactMessageSchema = z.object({
 export const contactStatusSchema = z.object({
   status: z.enum(["novo", "respondido"]),
 });
+export const contactReplySchema = z.object({
+  reply: z.string().trim().min(2, "Escreva a resposta.").max(4000, "Resposta muito longa."),
+});
+// Mesma regra do contactMessageSchema: o que não é e-mail é telefone.
+export const isEmailContact = (v) => /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(String(v).trim());
 
 export function validate(schema, source = "body") {
   return (req, res, next) => {

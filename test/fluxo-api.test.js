@@ -180,6 +180,19 @@ const storage = {
 
 const fake = { from: (t) => query(t), rpc, auth, storage };
 mock.module("../src/supabase.js", { namedExports: { supabaseAdmin: fake, supabaseAuth: fake } });
+// E-mail falso: guarda o que a API mandaria pela Resend.
+const sentEmails = [];
+let emailOn = true, emailFails = false;
+mock.module("../src/email.js", {
+  namedExports: {
+    emailConfigured: () => emailOn,
+    sendEmail: async (m) => {
+      if (emailFails) throw new Error("resend fora do ar");
+      sentEmails.push(m);
+      return { id: "e" + sentEmails.length };
+    },
+  },
+});
 
 let base, server;
 before(async () => {
@@ -557,6 +570,55 @@ test("fale conosco grava a mensagem e só o admin lê e marca como respondida", 
   assert.equal(upd.status, 200);
   assert.equal(upd.body.status, "respondido");
   assert.equal((await api("PATCH", "/contact/" + id + "/status", { status: "lido" }, admin)).status, 400);
+});
+
+test("admin responde o fale conosco: e-mail sai pela Resend, telefone fica como WhatsApp", async () => {
+  const admin = staff("admin");
+  const base = { reason: "Tirar dúvida sobre o cardápio", message: "Vocês têm opção sem glúten <b>hoje</b>?" };
+  await api("POST", "/contact", { ...base, name: "Carla Souza", contact: "carla@email.com" }, null, "10.0.0.51");
+  await api("POST", "/contact", { ...base, name: "Davi Reis", contact: "(13) 97777-6666" }, null, "10.0.0.52");
+  const porEmail = db.contact_messages.find((m) => m.contact === "carla@email.com");
+  const porFone = db.contact_messages.find((m) => m.name === "Davi Reis");
+  const url = (m) => "/contact/" + m.id + "/reply";
+
+  assert.equal((await api("POST", url(porEmail), { reply: "Temos sim!" })).status, 401);
+  assert.equal((await api("POST", url(porEmail), { reply: "Temos sim!" }, staff("cozinha"))).status, 403);
+  assert.equal((await api("POST", url(porEmail), { reply: " " }, admin)).status, 400);
+  assert.equal((await api("POST", "/contact/nao-existe/reply", { reply: "Temos sim!" }, admin)).status, 404);
+
+  // Sem chave da Resend ou com a Resend fora: não grava nada como respondido.
+  emailOn = false;
+  const semChave = await api("POST", url(porEmail), { reply: "Temos sim!" }, admin);
+  assert.equal(semChave.status, 503);
+  assert.equal(semChave.body.code, "email_not_configured");
+  emailOn = true; emailFails = true;
+  assert.equal((await api("POST", url(porEmail), { reply: "Temos sim!" }, admin)).status, 502);
+  emailFails = false;
+  assert.notEqual(porEmail.status, "respondido");
+  assert.equal(porEmail.reply, undefined);
+  assert.equal(sentEmails.length, 0);
+
+  const ok = await api("POST", url(porEmail), { reply: "Temos sim!\nO pão sem glúten sai na hora." }, admin);
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.status, "respondido");
+  assert.equal(ok.body.replyChannel, "email");
+  assert.equal(ok.body.reply, "Temos sim!\nO pão sem glúten sai na hora.");
+  assert.ok(ok.body.repliedAt);
+  assert.equal(sentEmails.length, 1);
+  assert.equal(sentEmails[0].to, "carla@email.com");
+  assert.match(sentEmails[0].subject, /SF-\d{6}/);
+  assert.match(sentEmails[0].html, /Olá, Carla!/);
+  assert.match(sentEmails[0].html, /Temos sim!<br>O pão/);
+  assert.match(sentEmails[0].html, /&lt;b&gt;hoje&lt;\/b&gt;/, "texto do cliente vai escapado no HTML");
+
+  const fone = await api("POST", url(porFone), { reply: "Temos sim!" }, admin);
+  assert.equal(fone.status, 200);
+  assert.equal(fone.body.replyChannel, "whatsapp");
+  assert.equal(fone.body.status, "respondido");
+  assert.equal(sentEmails.length, 1, "telefone não gera e-mail");
+
+  const lista = await api("GET", "/contact", null, admin);
+  assert.equal(lista.body.find((m) => m.id === porEmail.id).reply, "Temos sim!\nO pão sem glúten sai na hora.");
 });
 
 test("excluir conta apaga o acesso e mantém os pedidos sem dono", async () => {
