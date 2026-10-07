@@ -23,6 +23,7 @@ Preencha o `.env`:
 | `EMAIL_CONFIRM_REDIRECT_URL` | Para onde o link do e-mail de confirmação de cadastro leva (a tela de login do site, ex.: `https://owdarlley.github.io/sunfood/index.html?login=1`) |
 | `PASSWORD_RESET_REDIRECT_URL` | URL pública de `redefinir-senha.html` (ex.: `https://seu-site.github.io/sunfood/redefinir-senha.html`) — precisa também estar na lista de Redirect URLs em Authentication → URL Configuration no Supabase |
 | `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_WEBHOOK_SECRET` | Painel do Mercado Pago → Suas integrações → Credenciais. Sem isso, PIX e cartão são aprovados na hora como **provisório** (não cobra dinheiro real) |
+| `RESEND_API_KEY` (+ opcionais `EMAIL_FROM`, `CONTACT_REPLY_TO`) | resend.com → API Keys (Sending access, domínio sunfood.app.br). Usada para responder o Fale conosco por e-mail. Sem ela, só as respostas por WhatsApp funcionam |
 
 ```bash
 npm start   # sobe em http://localhost:8787
@@ -100,6 +101,7 @@ Senhas ficam só como hash dentro do Supabase Auth — o backend nunca vê nem g
 | POST | `/contact` | — | "Fale conosco" do site: grava a mensagem e devolve o protocolo (limite: 5 / 15 min por IP) |
 | GET | `/contact` | admin | Mensagens recebidas pelo Fale conosco, mais novas primeiro |
 | PATCH | `/contact/:id/status` | admin | Marcar mensagem como respondida (ou nova) |
+| POST | `/contact/:id/reply` | admin | Responder: se o contato é e-mail, envia pela Resend; se é telefone, só registra (o app abre o WhatsApp). Marca como respondida |
 
 ## Modelo de dados (Supabase Postgres)
 
@@ -121,7 +123,7 @@ Senhas ficam só como hash dentro do Supabase Auth — o backend nunca vê nem g
 
 O projeto já está preparado pra rodar como função serverless (`api/index.js` + `vercel.json`). A função roda em `pdx1` (Portland, EUA), perto do banco do Supabase (`us-west-2`, Oregon): cada pedido à API faz 2 ou mais consultas ao banco em sequência, e com a função na região padrão da Vercel (Washington) cada uma atravessava os EUA. Se o banco mudar de região, mude `regions` no `vercel.json` junto. Pra publicar:
 
-1. No painel da Vercel, confirme as variáveis de ambiente do projeto (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `PASSWORD_RESET_REDIRECT_URL`, `EMAIL_CONFIRM_REDIRECT_URL`, `CORS_ORIGIN`, `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_WEBHOOK_SECRET`).
+1. No painel da Vercel, confirme as variáveis de ambiente do projeto (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `PASSWORD_RESET_REDIRECT_URL`, `EMAIL_CONFIRM_REDIRECT_URL`, `CORS_ORIGIN`, `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_WEBHOOK_SECRET`, `RESEND_API_KEY`).
 2. No painel do Supabase, em Authentication → URL Configuration, adicione a URL de `redefinir-senha.html` publicada na lista de Redirect URLs (senão o link do e-mail de recuperação de senha não funciona).
 3. No painel do Mercado Pago, configure a Webhook URL apontando pra `https://<seu-domínio-vercel>/payments/mercadopago/webhook`.
 4. Ative "Leaked Password Protection" em Authentication → Providers → Email, no painel do Supabase (recomendado pelo próprio linter de segurança do projeto).
