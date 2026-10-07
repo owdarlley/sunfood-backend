@@ -159,6 +159,11 @@ const auth = {
       const p = db.profiles.find((x) => x.id === id);
       return { data: { user: p && { id, email: p.email, app_metadata: { providers: p.providers || ["email"] } } }, error: null };
     },
+    async updateUserById(id, attrs) {
+      const p = db.profiles.find((x) => x.id === id);
+      if (attrs.password) db.passwords[p.email] = attrs.password;
+      return { data: { user: { id } }, error: null };
+    },
     async deleteUser(id) {
       db.profiles = db.profiles.filter((p) => p.id !== id);
       db.orders.filter((o) => o.customer_id === id).forEach((o) => (o.customer_id = null)); // ON DELETE SET NULL
@@ -619,6 +624,88 @@ test("admin responde o fale conosco: e-mail sai pela Resend, telefone fica como 
 
   const lista = await api("GET", "/contact", null, admin);
   assert.equal(lista.body.find((m) => m.id === porEmail.id).reply, "Temos sim!\nO pão sem glúten sai na hora.");
+});
+
+test("perfil: edita dados, avisos, avatar pronto e foto; e-mail e CPF não mudam", async () => {
+  assert.equal((await api("GET", "/auth/profile")).status, 401);
+  const r = await api("GET", "/auth/profile", null, anaToken);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.user.name, "Ana Teste");
+  assert.equal(r.body.cpf, "529.***.***-25", "CPF mascarado");
+  assert.equal(r.body.phone, "11999999999");
+  assert.equal(r.body.hasPassword, true);
+  assert.equal(r.body.user.notifyReady, true);
+  assert.equal(r.body.user.avatarUrl, null);
+
+  assert.equal((await api("PATCH", "/auth/profile", {}, anaToken)).status, 400, "nada para salvar");
+  assert.equal((await api("PATCH", "/auth/profile", { birthDate: "2015-01-01" }, anaToken)).status, 400, "18+");
+  assert.equal((await api("PATCH", "/auth/profile", { avatarPreset: "dragao" }, anaToken)).status, 400);
+  const salvo = await api("PATCH", "/auth/profile",
+    { name: "Ana Souza", phone: "11 98888-7777", notifyReady: false, soundOn: false, avatarPreset: "coco",
+      email: "outra@teste.com", cpf: "11144477735", role: "admin" }, anaToken);
+  assert.equal(salvo.status, 200);
+  assert.equal(salvo.body.user.name, "Ana Souza");
+  assert.equal(salvo.body.user.avatarPreset, "coco");
+  assert.equal(salvo.body.user.notifyReady, false);
+  const prof = db.profiles.find((p) => p.email === ana.email);
+  assert.equal(prof.phone, "11 98888-7777");
+  assert.equal(prof.sound_on, false);
+  assert.equal(prof.cpf, "52998224725", "CPF não muda pela tela de perfil");
+  assert.equal(prof.role, "cliente", "papel não muda");
+  assert.equal((await api("GET", "/auth/me", null, anaToken)).body.user.name, "Ana Souza");
+
+  const jpg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(300, 2)]);
+  const enviar = (body, token) => fetch(base + "/auth/avatar", { method: "POST", body,
+    headers: { "Content-Type": "image/jpeg", ...(token ? { Authorization: "Bearer " + token } : {}) } });
+  assert.equal((await enviar(jpg)).status, 401);
+  assert.equal((await enviar(Buffer.from("<svg onload=alert(1)>"), anaToken)).status, 400);
+  const foto = await enviar(jpg, anaToken);
+  assert.equal(foto.status, 201);
+  const { user } = await foto.json();
+  assert.match(user.avatarUrl, /^https:\/\/teste\.supabase\.co\/storage\/v1\/object\/public\/avatares\/[0-9a-f-]{36}\.jpg$/);
+  assert.equal(user.avatarPreset, null, "foto enviada substitui o avatar pronto");
+  const primeira = prof.avatar_path;
+  assert.equal(uploads.at(-1).bucket, "avatares");
+
+  await enviar(jpg, anaToken);
+  assert.notEqual(prof.avatar_path, primeira);
+  assert.deepEqual(removed.at(-1), { bucket: "avatares", path: primeira }, "foto antiga apagada");
+
+  const segunda = prof.avatar_path;
+  const tirar = await api("DELETE", "/auth/avatar", null, anaToken);
+  assert.equal(tirar.status, 200);
+  assert.equal(tirar.body.user.avatarUrl, null);
+  assert.deepEqual(removed.at(-1), { bucket: "avatares", path: segunda });
+
+  // Equipe também edita o próprio nome.
+  const cozinha = staff("cozinha");
+  assert.equal((await api("PATCH", "/auth/profile", { name: "Cozinha Central" }, cozinha)).status, 200);
+});
+
+test("trocar senha: confere a senha atual e recusa conta só do Google", async () => {
+  const errada = await api("POST", "/auth/change-password", { currentPassword: "chute", newPassword: "nova-senha-1" }, anaToken, "10.9.0.1");
+  assert.equal(errada.status, 400);
+  assert.equal(errada.body.code, "wrong_password");
+  assert.equal((await api("POST", "/auth/change-password", { currentPassword: ana.password, newPassword: "123" }, anaToken, "10.9.0.1")).status, 400);
+  const ok = await api("POST", "/auth/change-password", { currentPassword: ana.password, newPassword: "nova-senha-1" }, anaToken, "10.9.0.1");
+  assert.equal(ok.status, 200);
+  assert.equal((await api("POST", "/auth/login", { email: ana.email, password: ana.password })).status, 401, "senha velha não entra mais");
+  const login = await api("POST", "/auth/login", { email: ana.email, password: "nova-senha-1" });
+  assert.equal(login.status, 200);
+  assert.equal(login.body.user.name, "Ana Souza");
+  assert.equal(login.body.user.notifyReady, false, "login já traz as preferências");
+  anaToken = login.body.token;
+
+  db.profiles.push({ id: "g-9", email: "gui@gmail.com", name: "Gui", role: "cliente", providers: ["google"] });
+  db.users["tok-g-9"] = { id: "g-9", email: "gui@gmail.com" };
+  assert.equal((await api("GET", "/auth/profile", null, "tok-g-9")).body.hasPassword, false);
+  const google = await api("POST", "/auth/change-password", { currentPassword: "x", newPassword: "nova-senha-1" }, "tok-g-9", "10.9.0.2");
+  assert.equal(google.body.code, "google_account");
+
+  for (let i = 0; i < 4; i++) await api("POST", "/auth/change-password", { currentPassword: "chute", newPassword: "nova-senha-2" }, anaToken, "10.9.0.3");
+  const r = await api("POST", "/auth/change-password", { currentPassword: "chute", newPassword: "nova-senha-2" }, anaToken, "10.9.0.3");
+  assert.equal(r.status, 400);
+  assert.equal((await api("POST", "/auth/change-password", { currentPassword: "chute", newPassword: "nova-senha-2" }, anaToken, "10.9.0.3")).status, 429, "limite de tentativas");
 });
 
 test("excluir conta apaga o acesso e mantém os pedidos sem dono", async () => {

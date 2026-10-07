@@ -58,6 +58,26 @@ export const completeProfileSchema = z.object({
   termsAccepted: termsField,
 });
 
+// Avatares prontos do perfil (o app desenha cada um); o banco confere a mesma lista.
+export const AVATAR_PRESETS = ["sol", "onda", "coco", "abacaxi", "peixe", "concha", "palmeira", "picole"];
+
+// Tela Perfil: o usuário muda só o que mandar. E-mail e CPF não mudam aqui.
+export const profileUpdateSchema = z
+  .object({
+    name: nameField.optional(),
+    phone: phoneField.optional(),
+    birthDate: birthDateField.optional(),
+    avatarPreset: z.enum(AVATAR_PRESETS, { message: "Avatar inválido." }).nullable().optional(),
+    notifyReady: z.boolean().optional(),
+    soundOn: z.boolean().optional(),
+  })
+  .refine((d) => Object.values(d).some((v) => v !== undefined), { message: "Nada para salvar." });
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Digite sua senha atual."),
+  newPassword: z.string().min(6, "Senha deve ter ao menos 6 caracteres."),
+});
+
 // Esqueci minha senha: o cliente manda o e-mail OU o CPF (pra quem não
 // lembra com qual e-mail se cadastrou).
 export const forgotPasswordSchema = z

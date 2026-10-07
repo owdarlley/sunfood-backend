@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import express, { Router } from "express";
 import { supabaseAdmin } from "../supabase.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { MAX_IMAGE_BYTES, imageType, publicBucketPrefix } from "../images.js";
 import { productSchema, soldOutToggleSchema, validate } from "../validation/schemas.js";
 
 export const productsRouter = Router();
@@ -54,21 +55,8 @@ function fromApi(p) {
 // cardápio mostra sem login). Só esta API grava nele, com a service role,
 // depois de conferir que quem enviou é admin.
 export const PRODUCT_IMAGES_BUCKET = "produtos";
-const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
-
 function publicImagePrefix() {
-  return `${process.env.SUPABASE_URL}/storage/v1/object/public/${PRODUCT_IMAGES_BUCKET}/`;
-}
-
-// Confere a assinatura do arquivo em vez de confiar no Content-Type: um .html
-// renomeado pra .jpg não vira "foto" servida pelo nosso domínio do Storage.
-function imageType(buf) {
-  if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return { ext: "jpg", mime: "image/jpeg" };
-  if (buf.length > 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])))
-    return { ext: "png", mime: "image/png" };
-  if (buf.length > 12 && buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP")
-    return { ext: "webp", mime: "image/webp" };
-  return null;
+  return publicBucketPrefix(PRODUCT_IMAGES_BUCKET);
 }
 
 // A foto só pode apontar pro nosso bucket: impede o admin (ou um token roubado)
