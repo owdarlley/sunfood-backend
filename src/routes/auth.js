@@ -1,8 +1,10 @@
-import { Router } from "express";
+import { randomUUID } from "node:crypto";
+import express, { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { supabaseAuth, supabaseAdmin } from "../supabase.js";
 import { requireAuth, isProfileComplete } from "../middleware/auth.js";
 import { maskEmail } from "../mask-email.js";
+import { MAX_IMAGE_BYTES, imageType, publicBucketPrefix } from "../images.js";
 import {
   loginSchema,
   signupSchema,
@@ -11,6 +13,8 @@ import {
   refreshSchema,
   updatePasswordSchema,
   completeProfileSchema,
+  profileUpdateSchema,
+  changePasswordSchema,
   validate,
 } from "../validation/schemas.js";
 
@@ -50,6 +54,40 @@ async function cpfTaken(cpf, exceptUserId) {
   return Boolean(data && data.id !== exceptUserId);
 }
 
+// Foto do perfil: bucket público "avatares"; o banco guarda só o nome do arquivo.
+export const AVATARS_BUCKET = "avatares";
+const PROFILE_COLUMNS = "role, name, phone, cpf, birth_date, terms_accepted_at, avatar_path, avatar_preset, notify_ready, sound_on";
+
+const avatarUrl = (profile) => (profile?.avatar_path ? publicBucketPrefix(AVATARS_BUCKET) + profile.avatar_path : null);
+
+// O que o app guarda do usuário logado (login, /me, salvar perfil).
+function userApi(id, email, profile) {
+  return {
+    id,
+    name: profile?.name || "",
+    email,
+    role: profile?.role || "cliente",
+    profileComplete: isProfileComplete(profile),
+    avatarUrl: avatarUrl(profile),
+    avatarPreset: profile?.avatar_preset || null,
+    notifyReady: profile?.notify_ready !== false,
+    soundOn: profile?.sound_on !== false,
+  };
+}
+
+// Só os 3 primeiros e os 2 últimos dígitos: o bastante pro dono reconhecer.
+const maskCpf = (cpf) => (cpf ? `${cpf.slice(0, 3)}.***.***-${cpf.slice(9)}` : null);
+
+async function hasPassword(userId) {
+  const { data } = await supabaseAdmin.auth.admin.getUserById(userId);
+  const providers = data?.user?.app_metadata?.providers || [];
+  return !providers.length || providers.includes("email");
+}
+
+async function removeAvatarFile(path) {
+  if (path) await supabaseAdmin.storage.from(AVATARS_BUCKET).remove([path]);
+}
+
 authRouter.post("/login", loginLimiter, validate(loginSchema), async (req, res) => {
   const { email, password } = req.body;
   const { data, error } = await supabaseAuth.auth.signInWithPassword({ email, password });
@@ -71,20 +109,14 @@ authRouter.post("/login", loginLimiter, validate(loginSchema), async (req, res) 
 
   const { data: profile } = await supabaseAdmin
     .from("profiles")
-    .select("role, name, phone, cpf, birth_date, terms_accepted_at")
+    .select(PROFILE_COLUMNS)
     .eq("id", data.user.id)
     .single();
 
   res.json({
     token: data.session.access_token,
     refreshToken: data.session.refresh_token,
-    user: {
-      id: data.user.id,
-      name: profile?.name || "",
-      email: data.user.email,
-      role: profile?.role || "cliente",
-      profileComplete: isProfileComplete(profile),
-    },
+    user: userApi(data.user.id, data.user.email, profile),
   });
 });
 
@@ -213,8 +245,7 @@ authRouter.post("/update-password", forgotLimiter, validate(updatePasswordSchema
 // access_token direto pro navegador (redirect do Supabase) sem passar pelo
 // nosso /auth/login. O front troca esse token pelos dados do perfil aqui.
 authRouter.get("/me", requireAuth, async (req, res) => {
-  const { sub: id, name, email, role, profileComplete } = req.user;
-  res.json({ user: { id, name, email, role, profileComplete } });
+  res.json({ user: userApi(req.user.sub, req.user.email, req.user.profile) });
 });
 
 // Quem entrou pelo Google completa aqui o que o formulário de cadastro
@@ -229,8 +260,113 @@ authRouter.post("/complete-profile", requireAuth, validate(completeProfileSchema
   // 23505 = o índice único do banco barrou (dois cadastros ao mesmo tempo com o mesmo CPF).
   if (error?.code === "23505") return res.status(409).json({ error: CPF_TAKEN });
   if (error) return res.status(500).json({ error: "Não foi possível salvar seu cadastro." });
-  const { sub: id, email, role } = req.user;
-  res.json({ user: { id, name, email, role, profileComplete: true } });
+  const profile = { ...req.user.profile, name, phone, cpf, birth_date: birthDate, terms_accepted_at: new Date().toISOString() };
+  res.json({ user: userApi(req.user.sub, req.user.email, profile) });
+});
+
+// Tela Perfil: dados da conta pra preencher o formulário. O CPF vai mascarado
+// (não muda por aqui) e hasPassword diz se a conta tem senha (quem entrou só
+// pelo Google não tem, então o app esconde "Trocar senha").
+authRouter.get("/profile", requireAuth, async (req, res) => {
+  const p = req.user.profile;
+  res.json({
+    user: userApi(req.user.sub, req.user.email, p),
+    phone: p.phone || "",
+    birthDate: p.birth_date || "",
+    cpf: maskCpf(p.cpf),
+    hasPassword: await hasPassword(req.user.sub),
+  });
+});
+
+// Salva o que o usuário mudou: nome, telefone, nascimento, avatar pronto e avisos.
+authRouter.patch("/profile", requireAuth, validate(profileUpdateSchema), async (req, res) => {
+  const { name, phone, birthDate, avatarPreset, notifyReady, soundOn } = req.body;
+  const changes = {};
+  if (name !== undefined) changes.name = name;
+  if (phone !== undefined) changes.phone = phone;
+  if (birthDate !== undefined) changes.birth_date = birthDate;
+  if (notifyReady !== undefined) changes.notify_ready = notifyReady;
+  if (soundOn !== undefined) changes.sound_on = soundOn;
+  // Escolher um avatar pronto troca a foto enviada (e apaga o arquivo).
+  if (avatarPreset !== undefined) {
+    changes.avatar_preset = avatarPreset;
+    if (avatarPreset) changes.avatar_path = null;
+  }
+  const { error } = await supabaseAdmin.from("profiles").update(changes).eq("id", req.user.sub);
+  if (error) return res.status(500).json({ error: "Não foi possível salvar seu perfil." });
+  const old = req.user.profile;
+  if (changes.avatar_path === null && old.avatar_path) await removeAvatarFile(old.avatar_path);
+  res.json({ user: userApi(req.user.sub, req.user.email, { ...old, ...changes }) });
+});
+
+// Trocar a senha logado, confirmando a senha atual (um celular esquecido
+// desbloqueado não basta pra tomar a conta).
+const changePasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Muitas tentativas. Tente novamente mais tarde." },
+});
+
+authRouter.post("/change-password", changePasswordLimiter, requireAuth, validate(changePasswordSchema), async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!(await hasPassword(req.user.sub))) {
+    return res.status(400).json({
+      error: "Sua conta entra pelo Google e não tem senha no Sunfood.",
+      code: "google_account",
+    });
+  }
+  const { data, error: signInError } = await supabaseAuth.auth.signInWithPassword({
+    email: req.user.email,
+    password: currentPassword,
+  });
+  if (signInError || data?.user?.id !== req.user.sub) {
+    return res.status(400).json({ error: "Senha atual incorreta.", code: "wrong_password" });
+  }
+  const { error } = await supabaseAdmin.auth.admin.updateUserById(req.user.sub, { password: newPassword });
+  if (error) return res.status(500).json({ error: "Não foi possível trocar a senha." });
+  res.json({ message: "Senha alterada." });
+});
+
+// Foto do perfil enviada pelo celular/computador (o app já reduz o tamanho).
+authRouter.post(
+  "/avatar",
+  requireAuth,
+  express.raw({ type: () => true, limit: MAX_IMAGE_BYTES }),
+  async (req, res) => {
+    const buf = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    const type = imageType(buf);
+    if (!type) return res.status(400).json({ error: "Envie uma foto em JPG, PNG ou WebP." });
+    const path = `${randomUUID()}.${type.ext}`;
+    const { error: upErr } = await supabaseAdmin.storage
+      .from(AVATARS_BUCKET)
+      .upload(path, buf, { contentType: type.mime, cacheControl: "31536000", upsert: false });
+    if (upErr) return res.status(500).json({ error: "Não foi possível guardar a foto." });
+    const { error } = await supabaseAdmin
+      .from("profiles")
+      .update({ avatar_path: path, avatar_preset: null })
+      .eq("id", req.user.sub);
+    if (error) {
+      await removeAvatarFile(path);
+      return res.status(500).json({ error: "Não foi possível salvar a foto." });
+    }
+    const old = req.user.profile;
+    await removeAvatarFile(old.avatar_path);
+    res.status(201).json({ user: userApi(req.user.sub, req.user.email, { ...old, avatar_path: path, avatar_preset: null }) });
+  }
+);
+
+// Tira a foto e o avatar: volta pra inicial do nome.
+authRouter.delete("/avatar", requireAuth, async (req, res) => {
+  const { error } = await supabaseAdmin
+    .from("profiles")
+    .update({ avatar_path: null, avatar_preset: null })
+    .eq("id", req.user.sub);
+  if (error) return res.status(500).json({ error: "Não foi possível tirar a foto." });
+  const old = req.user.profile;
+  await removeAvatarFile(old.avatar_path);
+  res.json({ user: userApi(req.user.sub, req.user.email, { ...old, avatar_path: null, avatar_preset: null }) });
 });
 
 // Exclusão da própria conta (LGPD, direito de eliminação) — a tela já
@@ -238,5 +374,6 @@ authRouter.post("/complete-profile", requireAuth, validate(completeProfileSchema
 authRouter.post("/delete-account", requireAuth, async (req, res) => {
   const { error } = await supabaseAdmin.auth.admin.deleteUser(req.user.sub);
   if (error) return res.status(500).json({ error: "Não foi possível excluir a conta." });
+  await removeAvatarFile(req.user.profile.avatar_path);
   res.json({ message: "Conta excluída." });
 });

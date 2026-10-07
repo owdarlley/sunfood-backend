@@ -17,7 +17,7 @@ export async function requireAuth(req, res, next) {
 
   const { data: profile, error: profileError } = await supabaseAdmin
     .from("profiles")
-    .select("role, name, phone, cpf, birth_date, terms_accepted_at")
+    .select("role, name, phone, cpf, birth_date, terms_accepted_at, avatar_path, avatar_preset, notify_ready, sound_on")
     .eq("id", userData.user.id)
     .single();
   if (profileError || !profile) {
@@ -30,6 +30,7 @@ export async function requireAuth(req, res, next) {
     name: profile.name,
     role: profile.role,
     profileComplete: isProfileComplete(profile),
+    profile,
   };
   next();
 }
