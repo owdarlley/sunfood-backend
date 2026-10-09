@@ -418,6 +418,7 @@ test("PIX provisório: aprovado na hora e vai para a cozinha", async () => {
   assert.equal(r.body.provisional, true);
   fila = await api("GET", "/orders", null, cozinha);
   assert.ok(fila.body.some((o) => o.id === pixOrder && o.paymentProvider === "provisorio"));
+  assert.equal(fila.body.find((o) => o.id === pixOrder).customerName, "Ana Teste", "cozinha vê o nome de quem pediu");
   assert.equal(db.products[0].stock_qty, 1, "estoque baixou 2");
 });
 

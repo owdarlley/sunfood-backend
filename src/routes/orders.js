@@ -45,6 +45,7 @@ function toApi(row, cancelWindow) {
     id: row.id,
     tableNumber: row.table_number,
     userId: row.customer_id,
+    customerName: row.customer_name,
     status: row.status,
     subtotal: Number(row.subtotal),
     total: Number(row.total),
@@ -174,7 +175,15 @@ ordersRouter.get("/", requireAuth, requireRole("admin", "cozinha"), async (req, 
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: "Erro ao carregar pedidos." });
   const visible = req.user.role === "cozinha" ? data.filter((row) => !awaitingOnlinePayment(row)) : data;
-  res.json(visible.map(toApi));
+  // Nome de quem fez o pedido, para a cozinha chamar o cliente pelo nome.
+  // Conta apagada fica sem nome (customer_id vira nulo).
+  const ids = [...new Set(visible.map((row) => row.customer_id).filter(Boolean))];
+  const names = new Map();
+  if (ids.length) {
+    const { data: profiles } = await supabaseAdmin.from("profiles").select("id, name").in("id", ids);
+    for (const p of profiles || []) names.set(p.id, p.name);
+  }
+  res.json(visible.map((row) => toApi({ ...row, customer_name: names.get(row.customer_id) || null })));
 });
 
 // Qualquer papel autenticado pode ver o detalhe — cliente só o próprio pedido.
