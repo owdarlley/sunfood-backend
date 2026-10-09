@@ -113,6 +113,9 @@ export const createOrderSchema = z.object({
   paymentMethod: z.enum(PAYMENT_METHODS).optional().default("pix"),
 });
 
+// Pedido lançado pelo garçom: mesma coisa, sem forma de pagamento (é sempre na entrega).
+export const manualOrderSchema = createOrderSchema.omit({ paymentMethod: true });
+
 // null desfaz um recebimento marcado por engano.
 export const paymentReceivedSchema = z.object({
   receivedWith: z.union([z.enum(RECEIVED_WITH), z.null()]),
@@ -187,6 +190,18 @@ export const orderStatusUpdateSchema = z.object({
 export const REPORT_PERIODS = { hoje: 1, "7d": 7, "30d": 30 };
 export const salesReportQuerySchema = z.object({
   period: z.enum(Object.keys(REPORT_PERIODS), { message: "Período inválido. Use hoje, 7d ou 30d." }).default("hoje"),
+});
+
+// Admin cadastra um garçom: nome, e-mail e uma senha inicial que ele mesmo
+// pode trocar depois.
+export const waiterCreateSchema = z.object({
+  name: nameField,
+  email: z.string().trim().toLowerCase().email("E-mail inválido."),
+  password: z.string().min(6, "Senha deve ter ao menos 6 caracteres."),
+});
+
+export const waiterActiveSchema = z.object({
+  active: z.boolean(),
 });
 
 // "Fale conosco" do site (painel do login): o contato pode ser e-mail ou

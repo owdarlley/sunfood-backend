@@ -103,6 +103,10 @@ authRouter.post("/login", loginLimiter, validate(loginSchema), async (req, res) 
       code: "email_not_confirmed",
     });
   }
+  // Garçom desativado pelo admin (conta bloqueada no Supabase Auth).
+  if (error?.code === "user_banned") {
+    return res.status(403).json({ error: "Esta conta foi desativada pela administração do quiosque." });
+  }
   if (error || !data.session) {
     return res.status(401).json({ error: "Credenciais inválidas." });
   }

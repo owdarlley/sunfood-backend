@@ -2,7 +2,7 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { supabaseAdmin } from "../supabase.js";
 import { requireAuth, requireRole, requireCompleteProfile } from "../middleware/auth.js";
-import { createOrderSchema, orderStatusUpdateSchema, paymentReceivedSchema, validate } from "../validation/schemas.js";
+import { createOrderSchema, manualOrderSchema, orderStatusUpdateSchema, paymentReceivedSchema, validate } from "../validation/schemas.js";
 import {
   computeOrderTotals,
   meetsMinimumOrder,
@@ -21,6 +21,9 @@ import {
 import { cancelOrderWithRefund, expireUnpaidOrders } from "../order-payments.js";
 
 export const ordersRouter = Router();
+
+// Status que o garçom acompanha: o que ainda vai sair da cozinha e o que está pronto para levar.
+const WAITER_STATUSES = ["Na Fila", "Em Preparo", "Pronto"];
 
 // Trava contra spam de pedidos (bug de cliente ou tentativa de abuso) — bem
 // mais generoso que o limite de login, já que é uso normal repetir pedidos.
@@ -45,6 +48,9 @@ function toApi(row, cancelWindow) {
     id: row.id,
     tableNumber: row.table_number,
     userId: row.customer_id,
+    waiterId: row.waiter_id ?? null,
+    deliveredBy: row.delivered_by ?? null,
+    deliveredAt: row.delivered_at ?? null,
     status: row.status,
     subtotal: Number(row.subtotal),
     total: Number(row.total),
@@ -70,11 +76,10 @@ function toApi(row, cancelWindow) {
 
 const ORDER_SELECT = "*, order_items(*)";
 
-// Cliente: cria um pedido. Todas as regras de negócio são checadas aqui,
-// no servidor — o front pode ser enganado, o backend não.
-ordersRouter.post("/", requireAuth, requireRole("cliente"), requireCompleteProfile, createOrderLimiter, validate(createOrderSchema), async (req, res) => {
-  const { tableNumber, items, note, paymentMethod } = req.body;
-
+// Valida e grava um pedido. Todas as regras de negócio são checadas aqui,
+// no servidor — o front pode ser enganado, o backend não. Usado pelo cliente
+// (pedido pelo app) e pelo garçom (pedido feito na mesa, sem cliente no app).
+async function placeOrder(res, { tableNumber, items, note, paymentMethod, customerId = null, waiterId = null }) {
   const { data: settings } = await supabaseAdmin.from("kiosk_settings").select("*").eq("id", 1).single();
   if (settings?.paused) {
     return res.status(409).json({ error: "Quiosque pausado no momento — não é possível fechar o pedido." });
@@ -127,7 +132,8 @@ ordersRouter.post("/", requireAuth, requireRole("cliente"), requireCompleteProfi
 
   const { data: created, error: createError } = await supabaseAdmin.rpc("create_order", {
     payload: {
-      customerId: req.user.sub,
+      customerId,
+      waiterId,
       tableNumber,
       subtotal: subtotalCents / 100,
       fee: feeCents / 100,
@@ -150,7 +156,21 @@ ordersRouter.post("/", requireAuth, requireRole("cliente"), requireCompleteProfi
   }
 
   const { data: row } = await supabaseAdmin.from("orders").select(ORDER_SELECT).eq("id", created.id).single();
-  res.status(201).json(toApi(row, cancelWindowFrom(settings)));
+  res.status(201).json(toApi(row, customerId ? cancelWindowFrom(settings) : undefined));
+}
+
+// Cliente: cria um pedido pelo app.
+ordersRouter.post("/", requireAuth, requireRole("cliente"), requireCompleteProfile, createOrderLimiter, validate(createOrderSchema), (req, res) => {
+  const { tableNumber, items, note, paymentMethod } = req.body;
+  return placeOrder(res, { tableNumber, items, note, paymentMethod, customerId: req.user.sub });
+});
+
+// Garçom (ou admin): lança um pedido feito na mesa, de quem não usa o app.
+// Mesmas regras do pedido do cliente; o pagamento é sempre na entrega
+// (o garçom recebe na mesa) e o pedido fica no nome de quem lançou.
+ordersRouter.post("/manual", requireAuth, requireRole("garcom", "admin"), createOrderLimiter, validate(manualOrderSchema), (req, res) => {
+  const { tableNumber, items, note } = req.body;
+  return placeOrder(res, { tableNumber, items, note, paymentMethod: "entrega", waiterId: req.user.sub });
 });
 
 // Cliente: histórico dos próprios pedidos.
@@ -164,16 +184,18 @@ ordersRouter.get("/mine", requireAuth, requireRole("cliente"), async (req, res) 
   res.json(data.map(toApi));
 });
 
-// Admin/cozinha: lista de pedidos (opcionalmente filtrada por status), para o kanban/painel.
-// A cozinha não vê pedido de PIX/cartão ainda não pago; o admin vê tudo.
-ordersRouter.get("/", requireAuth, requireRole("admin", "cozinha"), async (req, res) => {
+// Admin/cozinha/garçom: lista de pedidos (opcionalmente filtrada por status), para o kanban/painel.
+// Cozinha e garçom não veem pedido de PIX/cartão ainda não pago; o admin vê tudo.
+// O garçom só recebe os pedidos em andamento (fila, preparo e prontos).
+ordersRouter.get("/", requireAuth, requireRole("admin", "cozinha", "garcom"), async (req, res) => {
   await expireUnpaidOrders();
   const { status } = req.query;
   let query = supabaseAdmin.from("orders").select(ORDER_SELECT).order("created_at", { ascending: false });
   if (status) query = query.eq("status", status);
+  else if (req.user.role === "garcom") query = query.in("status", WAITER_STATUSES);
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: "Erro ao carregar pedidos." });
-  const visible = req.user.role === "cozinha" ? data.filter((row) => !awaitingOnlinePayment(row)) : data;
+  const visible = req.user.role === "admin" ? data : data.filter((row) => !awaitingOnlinePayment(row));
   res.json(visible.map(toApi));
 });
 
@@ -223,13 +245,13 @@ ordersRouter.post("/:id/cancel", requireAuth, requireRole("cliente"), async (req
   res.json(toApi(updated, cancelWindow));
 });
 
-// Admin: anota que o garçom recebeu um pedido "pagar na entrega" (dinheiro,
-// cartão na maquininha ou PIX do quiosque), ou desfaz com receivedWith null.
-// É o que deixa a tela de Pagamentos do admin com todas as transações.
+// Admin ou o próprio garçom: anota que o garçom recebeu um pedido "pagar na
+// entrega" (dinheiro, cartão na maquininha ou PIX do quiosque), ou desfaz com
+// receivedWith null. É o que deixa a tela de Pagamentos do admin com todas as transações.
 ordersRouter.patch(
   "/:id/payment-received",
   requireAuth,
-  requireRole("admin"),
+  requireRole("admin", "garcom"),
   validate(paymentReceivedSchema),
   async (req, res) => {
     const { data: row, error } = await supabaseAdmin.from("orders").select("*").eq("id", req.params.id).maybeSingle();
@@ -253,13 +275,18 @@ ordersRouter.patch(
 );
 
 // Admin/cozinha: avançar o status no kanban (Na Fila -> Em Preparo -> Pronto -> Entregue).
+// Garçom: só marca "Entregue" um pedido pronto. Quem marca "Entregue" fica
+// gravado no pedido (delivered_by), para as métricas do garçom.
 ordersRouter.patch(
   "/:id/status",
   requireAuth,
-  requireRole("admin", "cozinha"),
+  requireRole("admin", "cozinha", "garcom"),
   validate(orderStatusUpdateSchema),
   async (req, res) => {
     const { status: next } = req.body;
+    if (req.user.role === "garcom" && next !== "Entregue") {
+      return res.status(403).json({ error: "O garçom só marca pedidos como entregues." });
+    }
     const { data: row, error } = await supabaseAdmin
       .from("orders")
       .select("*")
@@ -285,6 +312,7 @@ ordersRouter.patch(
       const { error: rpcError } = await supabaseAdmin.rpc("set_order_status", {
         p_order_id: row.id,
         p_status: next,
+        p_actor: req.user.sub,
       });
       if (rpcError) return res.status(500).json({ error: "Não foi possível atualizar o pedido." });
     }

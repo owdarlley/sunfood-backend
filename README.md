@@ -35,7 +35,7 @@ npm test    # roda os testes (ver abaixo)
 | Onde | O que testa | Como rodar |
 | --- | --- | --- |
 | `test/*.test.js` | Regras de negócio, permissões por papel, validação, assinatura do webhook e o fluxo completo da API (cadastro → pedido → entregue → excluir conta) com um Supabase falso em memória | `npm test` (roda sozinho no GitHub a cada push) |
-| `test/banco/*.sql` | As funções do banco de verdade: CPF do cadastro, estoque, status do pedido, formas de pagamento, prazo de cancelamento, pedido mínimo, quantidade de mesas, painel, encerrar o dia e relatórios | Colar no SQL Editor do Supabase |
+| `test/banco/*.sql` | As funções do banco de verdade: CPF do cadastro, estoque, status do pedido, formas de pagamento, prazo de cancelamento, pedido mínimo, quantidade de mesas, painel, encerrar o dia, relatórios e perfil garçom (pedido lançado na mesa, quem entregou e métricas) | Colar no SQL Editor do Supabase |
 
 Os `.sql` terminam com um erro **de propósito**: o Postgres desfaz tudo o que fizeram, então nada fica gravado. Passou = a mensagem começa com `TESTE_..._PASSOU`; qualquer `FALHA ...` é um bug.
 
@@ -77,12 +77,13 @@ Senhas ficam só como hash dentro do Supabase Auth — o backend nunca vê nem g
 | GET | `/tables` | — | Lista de mesas |
 | PATCH | `/tables/:number/active` | admin | Ativar/desativar mesa |
 | POST | `/orders` | cliente | Criar pedido (pedido mínimo, mesa ativa, estoque, quiosque aberto) |
+| POST | `/orders/manual` | garcom, admin | Garçom lança pedido feito na mesa (mesmas regras do app; pago na entrega; fica no nome do garçom) |
 | GET | `/orders/mine` | cliente | Pedidos do próprio usuário |
-| GET | `/orders` | admin, cozinha | Lista de pedidos (`?status=` opcional) |
+| GET | `/orders` | admin, cozinha, garcom | Lista de pedidos (`?status=` opcional; o garçom recebe só fila, preparo e prontos) |
 | GET | `/orders/:id` | dono ou admin/cozinha | Detalhe de um pedido |
 | POST | `/orders/:id/cancel` | cliente (dono) | Cancelar (só "Na Fila" e dentro do prazo); estorna se já foi pago |
-| PATCH | `/orders/:id/status` | admin, cozinha | Avançar status (kanban) |
-| PATCH | `/orders/:id/payment-received` | admin | Anotar como o garçom recebeu um pedido "pagar na entrega" |
+| PATCH | `/orders/:id/status` | admin, cozinha, garcom | Avançar status (kanban). O garçom só marca "Entregue"; quem entregou fica gravado no pedido |
+| PATCH | `/orders/:id/payment-received` | admin, garcom | Anotar como o garçom recebeu um pedido "pagar na entrega" |
 | GET | `/payments/status` | — | Diz se o Mercado Pago está configurado |
 | POST | `/payments/pix/:orderId` | cliente (dono) | Gera a cobrança PIX (ou aprova como provisório sem Mercado Pago) |
 | POST | `/payments/card/:orderId` | cliente (dono) | Abre o checkout de cartão do Mercado Pago (ou aprova como provisório) |
@@ -98,6 +99,10 @@ Senhas ficam só como hash dentro do Supabase Auth — o backend nunca vê nem g
 | GET | `/day-reports/latest` | admin | Último relatório de fechamento do dia |
 | POST | `/close-day` | admin | Encerra o dia e grava o relatório |
 | POST | `/reopen-day` | admin | Desfaz o encerramento |
+| GET | `/waiter/metrics?period=hoje\|7d\|30d` | garcom | Métricas do próprio garçom: pedidos entregues, tempo médio de pronto até entregue, pedidos lançados, valor lançado e recebido |
+| GET | `/waiters` | admin | Garçons cadastrados (ativo ou não) e o que cada um fez hoje |
+| POST | `/waiters` | admin | Cria a conta de um garçom (nome, e-mail, senha inicial) |
+| PATCH | `/waiters/:id` | admin | Desativa (`{ "active": false }`, não entra mais) ou reativa um garçom |
 | POST | `/contact` | — | "Fale conosco" do site: grava a mensagem e devolve o protocolo (limite: 5 / 15 min por IP) |
 | GET | `/contact` | admin | Mensagens recebidas pelo Fale conosco, mais novas primeiro |
 | PATCH | `/contact/:id/status` | admin | Marcar mensagem como respondida (ou nova) |
@@ -105,7 +110,7 @@ Senhas ficam só como hash dentro do Supabase Auth — o backend nunca vê nem g
 
 ## Modelo de dados (Supabase Postgres)
 
-`profiles` (papel do usuário, ligado a `auth.users`), `products`, `kiosk_tables`, `orders` + `order_items` + `order_status_log`, `kiosk_settings`, `day_reports`, `contact_messages` (Fale conosco). Ver as migrações aplicadas no projeto Supabase para o schema completo, incluindo as funções `create_order`, `set_order_status`, `dashboard_stats`, `ops_metrics`, `sales_report` e `close_day`, que gravam/agregam atomicamente e só são executáveis pelo `service_role` (nunca direto por um cliente autenticado).
+`profiles` (papel do usuário: cliente, admin, cozinha ou garcom; ligado a `auth.users`), `products`, `kiosk_tables`, `orders` + `order_items` + `order_status_log`, `kiosk_settings`, `day_reports`, `contact_messages` (Fale conosco). Ver as migrações aplicadas no projeto Supabase para o schema completo, incluindo as funções `create_order`, `set_order_status`, `dashboard_stats`, `ops_metrics`, `sales_report`, `waiter_metrics` e `close_day`, que gravam/agregam atomicamente e só são executáveis pelo `service_role` (nunca direto por um cliente autenticado).
 
 ## Segurança
 

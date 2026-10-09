@@ -24,6 +24,7 @@ const db = {
   passwords: {},
   resent: [],
   resetSent: [],
+  banned: {},
 };
 
 const TRANSITIONS = { "Na Fila": ["Em Preparo", "Cancelado"], "Em Preparo": ["Pronto"], Pronto: ["Entregue"] };
@@ -62,7 +63,7 @@ function query(table) {
   return q;
 }
 
-function setStatus(id, status) {
+function setStatus(id, status, actor) {
   const o = db.orders.find((x) => x.id === id);
   if (!(TRANSITIONS[o.status] || []).includes(status)) return { error: { message: "invalid_transition" } };
   if (status === "Cancelado") {
@@ -72,6 +73,7 @@ function setStatus(id, status) {
     }
   }
   o.status = status;
+  if (status === "Entregue") Object.assign(o, { delivered_by: actor ?? null, delivered_at: new Date().toISOString() });
   return { data: null, error: null };
 }
 
@@ -83,7 +85,7 @@ const rpc = async (name, args) => {
       if (prod.stock_qty !== null && prod.stock_qty < it.qty) return { error: { message: "out_of_stock:" + prod.name } };
     }
     const id = "o" + (db.orders.length + 1);
-    db.orders.push({ id, customer_id: p.customerId, table_number: p.tableNumber, status: "Na Fila", subtotal: p.subtotal,
+    db.orders.push({ id, customer_id: p.customerId, waiter_id: p.waiterId ?? null, table_number: p.tableNumber, status: "Na Fila", subtotal: p.subtotal,
       total: p.total, note: p.note, payment_method: p.paymentMethod || "pix", payment_status: "pending",
       created_at: new Date().toISOString() });
     for (const it of p.items) {
@@ -112,7 +114,15 @@ const rpc = async (name, args) => {
     db.products = db.products.filter((x) => x !== p);
     return { data: { action: "deleted", imageUrl: p.image_url ?? null }, error: null };
   }
-  if (name === "set_order_status") return setStatus(args.p_order_id, args.p_status);
+  if (name === "set_order_status") return setStatus(args.p_order_id, args.p_status, args.p_actor);
+  if (name === "waiter_metrics") {
+    // Conta simples em memória (o banco filtra também pelo período).
+    const mine = (k) => db.orders.filter((o) => o[k] === args.p_waiter);
+    const launched = mine("waiter_id").filter((o) => o.status !== "Cancelado");
+    return { data: { from: "2026-10-09", to: "2026-10-09", delivered: mine("delivered_by").length, avgDeliverMin: "2.5",
+      launched: launched.length, launchedTotal: String(launched.reduce((a, o) => a + o.total, 0)), received: "0",
+      byDay: Array.from({ length: args.p_days }, (_, i) => ({ date: "d" + i, delivered: 0, launched: 0 })) }, error: null };
+  }
   if (name === "close_day") {
     if (db.kiosk_settings[0].day_closed) return { error: { message: "day_already_closed" } };
     db.kiosk_settings[0].day_closed = true;
@@ -146,6 +156,7 @@ const auth = {
   },
   async signInWithPassword({ email, password }) {
     if (db.passwords[email] !== password) return { data: {}, error: { message: "Invalid login" } };
+    if (db.banned[email]) return { data: {}, error: { code: "user_banned", message: "User is banned" } };
     if (db.pending[email]) return { data: {}, error: { code: "email_not_confirmed", message: "Email not confirmed" } };
     const prof = db.profiles.find((p) => p.email === email);
     const token = "tok-" + prof.id;
@@ -157,12 +168,22 @@ const auth = {
   admin: {
     async getUserById(id) {
       const p = db.profiles.find((x) => x.id === id);
-      return { data: { user: p && { id, email: p.email, app_metadata: { providers: p.providers || ["email"] } } }, error: null };
+      return { data: { user: p && { id, email: p.email, app_metadata: { providers: p.providers || ["email"] },
+        banned_until: db.banned[p.email] ? "2126-01-01T00:00:00Z" : null } }, error: null };
     },
     async updateUserById(id, attrs) {
       const p = db.profiles.find((x) => x.id === id);
       if (attrs.password) db.passwords[p.email] = attrs.password;
+      if (attrs.ban_duration) db.banned[p.email] = attrs.ban_duration !== "none";
       return { data: { user: { id } }, error: null };
+    },
+    async createUser({ email, password, user_metadata }) {
+      if (db.passwords[email]) return { data: { user: null }, error: { code: "email_exists", message: "already registered" } };
+      const id = "w" + (db.profiles.length + 1);
+      db.passwords[email] = password;
+      // Igual ao trigger handle_new_user: nasce cliente.
+      db.profiles.push({ id, email, name: user_metadata.name, role: "cliente" });
+      return { data: { user: { id, email } }, error: null };
     },
     async deleteUser(id) {
       db.profiles = db.profiles.filter((p) => p.id !== id);
@@ -791,4 +812,83 @@ test("admin exclui item: sem pedido apaga (e a foto), com pedido arquiva", async
     items: [{ productId: P2, qty: 2 }] }, "tok-cli-2");
   assert.equal(pedido.status, 409, "carrinho antigo com item excluído não passa");
   assert.match(pedido.body.error, /saiu do cardápio/);
+});
+
+test("garçom: admin cadastra, garçom lança pedido na mesa, entrega e vê as métricas", async () => {
+  const admin = staff("admin");
+  const cozinha = staff("cozinha");
+  Object.assign(db.kiosk_settings[0], { paused: false, day_closed: false, min_order_cents: 1000 });
+  const P4 = "00000000-0000-4000-8000-000000000004";
+  db.products.push({ id: P4, name: "Caipirinha", category: "Bebidas", price: 15, stock_qty: null, sold_out: false });
+
+  // Só o admin cadastra garçom.
+  const novo = { name: "Carlos Garçom", email: "Garcom@Sunfood.com", password: "Sunfood@123" };
+  assert.equal((await api("POST", "/waiters", novo, cozinha)).status, 403);
+  const criado = await api("POST", "/waiters", novo, admin);
+  assert.equal(criado.status, 201, JSON.stringify(criado.body));
+  assert.equal(db.profiles.find((p) => p.id === criado.body.id).role, "garcom");
+  assert.equal(criado.body.email, "garcom@sunfood.com", "e-mail em minúsculas");
+  assert.equal((await api("POST", "/waiters", novo, admin)).status, 409, "e-mail repetido");
+
+  const login = await api("POST", "/auth/login", { email: "garcom@sunfood.com", password: "Sunfood@123" });
+  assert.equal(login.status, 200);
+  assert.equal(login.body.user.role, "garcom");
+  const garcom = login.body.token;
+
+  // Lança um pedido na mesa: sem cliente, pago na entrega, no nome do garçom.
+  assert.equal((await api("POST", "/orders/manual", { tableNumber: 1, items: [{ productId: P4, qty: 2 }] }, "tok-cli-2")).status, 403);
+  assert.equal((await api("POST", "/orders/manual", { tableNumber: 1, items: [{ productId: P4, qty: 0 }] }, garcom)).status, 400);
+  const pouco = await api("POST", "/orders/manual", { tableNumber: 1, items: [{ productId: "00000000-0000-4000-8000-000000000002", qty: 1 }] }, garcom);
+  assert.equal(pouco.status, 409, "mesmas regras do app (item fora do cardápio)");
+  const pedido = await api("POST", "/orders/manual", { tableNumber: 1, note: "guarda-sol azul", items: [{ productId: P4, qty: 2 }] }, garcom);
+  assert.equal(pedido.status, 201, JSON.stringify(pedido.body));
+  assert.equal(pedido.body.paymentMethod, "entrega");
+  assert.equal(pedido.body.userId, null);
+  assert.equal(pedido.body.waiterId, criado.body.id);
+  assert.equal(pedido.body.total, 33);
+
+  // Garçom vê só pedidos em andamento e não mexe na cozinha.
+  const lista = await api("GET", "/orders", null, garcom);
+  assert.equal(lista.status, 200);
+  assert.ok(lista.body.some((o) => o.id === pedido.body.id));
+  assert.ok(lista.body.every((o) => ["Na Fila", "Em Preparo", "Pronto"].includes(o.status)));
+  const id = pedido.body.id;
+  assert.equal((await api("PATCH", `/orders/${id}/status`, { status: "Em Preparo" }, garcom)).status, 403);
+  assert.equal((await api("PATCH", `/orders/${id}/status`, { status: "Em Preparo" }, cozinha)).status, 200);
+  assert.equal((await api("PATCH", `/orders/${id}/status`, { status: "Entregue" }, garcom)).status, 422, "ainda não está pronto");
+  assert.equal((await api("PATCH", `/orders/${id}/status`, { status: "Pronto" }, cozinha)).status, 200);
+  const entregue = await api("PATCH", `/orders/${id}/status`, { status: "Entregue" }, garcom);
+  assert.equal(entregue.status, 200);
+  assert.equal(entregue.body.status, "Entregue");
+  assert.equal(entregue.body.deliveredBy, criado.body.id, "grava quem entregou");
+
+  // Recebe o pagamento na mesa.
+  const recebido = await api("PATCH", `/orders/${id}/payment-received`, { receivedWith: "dinheiro" }, garcom);
+  assert.equal(recebido.status, 200);
+  assert.equal(recebido.body.receivedWith, "dinheiro");
+
+  // Métricas: só do próprio garçom.
+  assert.equal((await api("GET", "/waiter/metrics", null, admin)).status, 403);
+  assert.equal((await api("GET", "/waiter/metrics?period=ontem", null, garcom)).status, 400);
+  const m = await api("GET", "/waiter/metrics?period=7d", null, garcom);
+  assert.equal(m.status, 200, JSON.stringify(m.body));
+  assert.equal(m.body.period, "7d");
+  assert.equal(m.body.delivered, 1);
+  assert.equal(m.body.launched, 1);
+  assert.equal(m.body.launchedTotal, 33);
+  assert.equal(m.body.avgDeliverMin, 2.5);
+  assert.equal(m.body.byDay.length, 7);
+
+  // Admin vê a lista e desativa: o garçom não entra mais.
+  const equipe = await api("GET", "/waiters", null, admin);
+  assert.equal(equipe.status, 200);
+  assert.deepEqual(equipe.body.map((w) => [w.email, w.active, w.deliveredToday]), [["garcom@sunfood.com", true, 1]]);
+  assert.equal((await api("PATCH", "/waiters/" + admin.slice(4), { active: false }, admin)).status, 404, "só garçom");
+  assert.equal((await api("PATCH", "/waiters/" + criado.body.id, { active: false }, admin)).status, 200);
+  const bloqueado = await api("POST", "/auth/login", { email: "garcom@sunfood.com", password: "Sunfood@123" });
+  assert.equal(bloqueado.status, 403);
+  assert.match(bloqueado.body.error, /desativada/);
+  assert.equal((await api("GET", "/waiters", null, admin)).body[0].active, false);
+  assert.equal((await api("PATCH", "/waiters/" + criado.body.id, { active: true }, admin)).status, 200);
+  assert.equal((await api("POST", "/auth/login", { email: "garcom@sunfood.com", password: "Sunfood@123" })).status, 200);
 });
