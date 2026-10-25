@@ -1,8 +1,15 @@
-# Sunfood API
+# Sunfood API (cópia antiga, não usada)
 
-> **O Sunfood tem dois repositórios.** Este (`sunfood-backend`) é a **API e o banco**: servidor, Supabase (migrações e modelos de e-mail) e testes do banco. O **site** fica em [`owdarlley/sunfood`](https://github.com/owdarlley/sunfood).
+> ⚠️ **Este repositório está parado desde 07/10/2026 e não é o que está no ar.** A API e o banco do Sunfood passaram para a pasta [`server/`](https://github.com/owdarlley/sunfood/tree/main/server) do repositório [`owdarlley/sunfood`](https://github.com/owdarlley/sunfood), que é o publicado na Vercel (com Stripe, garçom, categorias, estornos e as migrações mais novas). Este código ainda usa Mercado Pago e fica aqui só como histórico. Mudanças novas vão para `owdarlley/sunfood`.
+>
+> Documentação atual da API: [server/README.md](https://github.com/owdarlley/sunfood/blob/main/server/README.md).
 
-Backend real do Sunfood — Node.js + Express, com **Supabase** (Postgres + Auth) como banco de dados e autenticação, e **Mercado Pago** para pagamento por PIX e cartão. Todas as regras de negócio (pedido mínimo, cancelamento, disponibilidade de item, permissão por papel) são validadas aqui no servidor, nunca só no front-end.
+---
+
+O texto abaixo descreve esta cópia antiga como ela estava em 07/10/2026.
+
+
+Backend do Sunfood — Node.js + Express, com **Supabase** (Postgres + Auth) como banco de dados e autenticação, e **Mercado Pago** para pagamento por PIX e cartão. Todas as regras de negócio (pedido mínimo, cancelamento, disponibilidade de item, permissão por papel) são validadas aqui no servidor, nunca só no front-end.
 
 Requer **Node.js 22.5 ou mais recente**.
 
