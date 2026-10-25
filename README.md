@@ -9,7 +9,7 @@
 O texto abaixo descreve esta cópia antiga como ela estava em 07/10/2026.
 
 
-Backend real do Sunfood — Node.js + Express, com **Supabase** (Postgres + Auth) como banco de dados e autenticação, e **Mercado Pago** para pagamento por PIX e cartão. Todas as regras de negócio (pedido mínimo, cancelamento, disponibilidade de item, permissão por papel) são validadas aqui no servidor, nunca só no front-end.
+Backend do Sunfood — Node.js + Express, com **Supabase** (Postgres + Auth) como banco de dados e autenticação, e **Mercado Pago** para pagamento por PIX e cartão. Todas as regras de negócio (pedido mínimo, cancelamento, disponibilidade de item, permissão por papel) são validadas aqui no servidor, nunca só no front-end.
 
 Requer **Node.js 22.5 ou mais recente**.
 
